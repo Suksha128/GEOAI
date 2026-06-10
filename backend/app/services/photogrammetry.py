@@ -8,7 +8,7 @@ class PhotogrammetryService:
     def check_docker_installed() -> bool:
         """Verifies if docker is available on the system path and daemon is running."""
         try:
-            subprocess.run(["docker", "info"], capture_output=True, check=True)
+            subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=5)
             return True
         except Exception:
             return False

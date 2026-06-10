@@ -455,6 +455,14 @@ function updateSystemStatus(text, pulseClass) {
   systemStatusText.innerText = text;
 }
 
+function enableLayer(layerName) {
+  const btn = document.querySelector(`.layer-btn[data-layer="${layerName}"]`);
+  if (btn) {
+    btn.removeAttribute('disabled');
+  }
+}
+
+
 function resetUploadUI() {
   statsFilesCount.innerText = '0 / 0';
   statsFolderCount.innerText = '0 folders parsed';
