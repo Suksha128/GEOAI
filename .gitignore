@@ -35,5 +35,5 @@ data/processed/*.parquet
 .DS_Store
 Thumbs.db
 
-# VS Code
-.vscode/settings.json
+# Storage and uploads
+backend/storage/
