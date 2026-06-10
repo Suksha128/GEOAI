@@ -1,54 +1,67 @@
-What files to upload
-Terrain files (from QGIS Reclassify + Zonal Histogram)
-FileWhat it containsSlope_Area_.csvgridcode, Area_SQKM per slope classTWI_Area_.csvgridcode, Area_SQKM per TWI classAspect_Area_.csvgridcode, Area_SQKM per aspect classCurvature_Area_.csvgridcode, Area_SQKM per curvature classFlowAccum_Area_.csvgridcode, Area_SQKM per flow accumulation classdem.tifRaw DEM GeoTIFF (or DEM_Area_.csv)
-Field data files (one row per field)
-FileWhat it containsfields.csvfield_id, zone, area_ha, crop_typedrone_bands.csvfield_id, red_mean, nir_mean, green_mean → NDVI computedsoil_lab.csvfield_id, ph, nitrogen, clay_pct (optional)
-Weather
-Fetched automatically from Open-Meteo. No file needed. No API key needed.
-Provide lat/lon coordinates when uploading.
+# GeoAI Agricultural Decision-Support Platform 🌾
 
-Setup
-Step 1 — Create all folders
-bashmkdir -p geoai_project/.vscode
-mkdir -p geoai_project/backend/api/routes
-mkdir -p geoai_project/backend/engine
-mkdir -p geoai_project/backend/models
-mkdir -p geoai_project/backend/utils
-mkdir -p geoai_project/backend/data/raw
-mkdir -p geoai_project/backend/data/processed
-mkdir -p geoai_project/backend/data/model_store
-mkdir -p geoai_project/frontend/public
-mkdir -p geoai_project/frontend/src/components/upload
-mkdir -p geoai_project/frontend/src/components/chat
-mkdir -p geoai_project/frontend/src/components/dashboard
-mkdir -p geoai_project/frontend/src/components/fields
-mkdir -p geoai_project/frontend/src/components/ui
-mkdir -p geoai_project/frontend/src/pages
-mkdir -p geoai_project/frontend/src/hooks
-mkdir -p geoai_project/frontend/src/utils
-mkdir -p geoai_project/frontend/src/assets
-mkdir -p geoai_project/scripts
-mkdir -p geoai_project/tests/unit
-mkdir -p geoai_project/tests/integration
-Step 2 — Backend
-bashcd geoai_project/backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn api.main:app --reload --port 8000
-API docs: http://localhost:8000/docs
-Step 3 — Frontend
-bashcd geoai_project/frontend
-npm install
-npm run dev
-App: http://localhost:5173
-Step 4 — Optional LLM (for better natural language output)
-bash# Option A: Local (free, no internet needed)
-# Install Ollama from https://ollama.ai
-ollama pull llama3.2:3b
+An automated, enterprise-grade cloud-and-offline hybrid drone photogrammetry mapping, GIS hydrology analysis, and machine learning crop diagnostics platform. Serves a premium, futuristic glassmorphic user interface concurrently via **Streamlit** (port 8501) and **FastAPI/Uvicorn** (port 8000).
 
-# Option B: Groq cloud (free, 14,400 req/day)
-# Get key from https://console.groq.com
-# Add to .env: GROQ_API_KEY=your_key
-The system works without any LLM — template formatter is the fallback.
+---
+
+### 📢 Core Architecture Status
+
+> [!IMPORTANT]
+> The platform operates on a **Dual-Execution Core**:
+> * **Live API Mode (Port 8000)**: Binds to local REST routers to run ODM photogrammetry alignments, WhiteboxTools calculations, and local XGBoost models.
+> * **Offline Sandbox Mode (Port 8501)**: Implements client-side procedural layouts and animation loops, enabling immediate interaction without local server installations.
+
+---
+
+## ⚡ Core Pipeline Features
+
+### 1. High-Speed Concurrency Ingestion Queue
+Optimized to handle **25 GB datasets** (~10,000 files, 2–3 MB each). The frontend parses dropped directory structures recursively using the browser's Directory Entry API and uploads them via a concurrent worker queue (up to 32 parallel streams) using a rolling average speed (MB/s) and ETA estimator.
+
+### 2. Automated Quality Control
+Filters out poor data before running heavy computations:
+* **Blur Detection**: Computes the variance of the Laplacian ($\text{Var}(\nabla^2 I)$) of each image. Flags captures with variance $< 100$.
+* **Exposure Check**: Validates histogram pixel ratios to detect overexposed/underexposed flight frames.
+* **Flight Trajectory Match**: Parses GPS coordinates from EXIF tags and checks sequential distance changes to flag GPS dropout.
+
+### 3. Photogrammetry (OpenDroneMap Wrapper)
+Triggers OpenDroneMap via programmatical subprocesses. Automatically computes keypoint features (SIFT), camera calibration matrices, sparse/dense point clouds, Digital Surface Models (DSM), Digital Elevation Models (DEM), and Orthomosaics.
+
+### 4. Bundle Adjustment self-calibration correction
+Detects low tie-point cameras ($< 15$ ties) and high reprojection-error outliers ($> 1.5$ pixels). Automatically prunes outliers and re-runs bundle adjustment Ceres optimizations.
+
+### 5. DEM Validation (Hydrological Correction)
+Uncorrected DEMs contain artificial sinks and spikes that disrupt flow calculations. The engine uses the **Wang & Liu (2006)** depression breaching algorithm to ensure a hydrologically correct surface.
+
+### 6. Hydrological GIS Engine (WhiteboxTools Wrapper)
+Calculates slope gradients, aspect, curvature, D8 flow pointers, flow accumulation channels, and the **Topographic Wetness Index (TWI)**:
+$$\text{TWI} = \ln\left(\frac{\alpha}{\tan \beta}\right)$$
+where $\alpha$ is flow accumulation and $\beta$ is local slope.
+
+### 7. Vegetation Vigor Analysis
+Extracts Red and NIR bands to calculate **NDVI**. If NIR imagery is unavailable, it automatically falls back to the RGB-based **VARI (Visible Atmospherically Resistant Index)**:
+$$\text{VARI} = \frac{\text{Green} - \text{Red}}{\text{Green} + \text{Red} - \text{Blue}}$$
+
+### 8. Grid-Based Zonal Statistics
+Aggregates raster values (Elevation, Slope, TWI, NDVI) by intersecting them with configurable boundary polygons (e.g. 10m, 20m, 50m fishnet grid cells).
+
+### 9. Machine Learning Layer (XGBoost & Scikit-learn)
+Fuses binned zonal stats into tabular models:
+* **Waterlogging Risk**: XGBoost binary classifier (TWI + Slope).
+* **Soil Erosion Risk**: XGBoost binary classifier (Slope + NDVI + Curvature).
+* **Yield Potential**: RandomForest regressor (NDVI + TWI).
+*(Note: If pre-trained model files are missing, the system automatically trains a fresh set of models on a synthetic physics-based dataset on startup).*
+
+### 10. AI Agronomic Reporting
+Compiles statistics, ML risk hotspots, crop suitability (Corn/Soybeans/Rye), and confidence matrices into a beautifully formatted Jinja2 HTML brief.
+
+---
+
+## 🧬 Automated 10-Stage Pipeline
+
+The platform coordinates drone imagery and GIS data processing across ten sequential stages. You can track progress visually on the dashboard:
+
+```text
+[1. Upload] ➜ [2. Quality Control] ➜ [3. Photogrammetry] ➜ [4. Error Correction] ➜ [5. DEM Validation]
+                                                                                            |
+[10. AI Report] ➜ [9. GeoAI ML Layer] ➜ [8. Zonal Stats] ➜ [7. Vegetation Index] ➜ [6. GIS Terrain]
