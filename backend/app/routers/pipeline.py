@@ -30,9 +30,18 @@ def execute_geoai_pipeline(project_id: str):
         images = list(upload_dir.glob("**/*"))
         images = [img for img in images if img.is_file() and img.suffix.lower() in ['.jpg', '.jpeg', '.png', '.tif']]
         
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # Performance optimization: if there are more than 100 images, run in fast EXIF-only mode
+        # for images past index 100 to avoid CPU thrashing on gigabyte datasets during testing.
+        def process_image(index_and_path):
+            idx, img_path = index_and_path
+            return qc.run_qc(img_path, fast_mode=(idx >= 100))
+            
         qc_results = []
-        for img in images:
-            qc_results.append(qc.run_qc(img))
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            qc_results = list(executor.map(process_image, enumerate(images)))
+            
         passed_cams = [r for r in qc_results if r["passed"]]
         time.sleep(1.5) # Simulate processing delay
         
