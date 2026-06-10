@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoAI Agricultural Platform - Azure Orchestrated Drone Pipeline</title>
+  <meta name="description" content="Automated cloud-based drone mapping, GIS analysis, and AI crop diagnostics platform. Supporting ultra-fast concurrent folder uploads.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- Background glow effects -->
+  <div class="glow-orb orb-1"></div>
+  <div class="glow-orb orb-2"></div>
+
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon"></div>
+        <div>
+          <h1>GeoAI AgriPlatform</h1>
+          <p class="subtitle">Cloud-Based Drone Photogrammetry & Decision Support</p>
+        </div>
+      </div>
+      <div class="system-status">
+        <span class="status-dot pulse-green" id="systemStatusDot"></span>
+        <span id="systemStatusText" class="status-label">System Ready - Idle</span>
+        <span class="azure-badge">Offline Mode</span>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <!-- Row 1: Configurations & Upload Container -->
+      <section class="panel glass-panel config-panel">
+        <div class="panel-header">
+          <span class="icon">⚙️</span>
+          <h2>Pipeline Configuration</h2>
+        </div>
+        <div class="panel-body">
+          <div class="control-group">
+            <label for="concurrencySlider">Upload Concurrency Streams</label>
+            <div class="slider-container">
+              <input type="range" id="concurrencySlider" min="4" max="32" value="12" step="1">
+              <span class="value-badge" id="concurrencyVal">12</span>
+            </div>
+            <p class="control-help">Number of concurrent HTTP connection streams uploading directly to Azure Blob Storage using SAS signatures.</p>
+          </div>
+
+          <div class="control-group">
+            <label for="gridSizeSelect">Analysis Grid Resolution</label>
+            <select id="gridSizeSelect" class="styled-select">
+              <option value="10" selected>10m x 10m (High Precision)</option>
+              <option value="20">20m x 20m (Medium Resolution)</option>
+              <option value="50">50m x 50m (Fast Processing)</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="vegIndexSelect">Vegetation Index Mode</label>
+            <select id="vegIndexSelect" class="styled-select">
+              <option value="auto" selected>Auto-Detect Bands</option>
+              <option value="ndvi">NDVI (Requires NIR band)</option>
+              <option value="vari">VARI (RGB Fallback)</option>
+            </select>
+          </div>
+
+          <div class="control-group checkbox-group">
+            <label class="toggle-switch">
+              <input type="checkbox" id="errorCorrectionToggle" checked>
+              <span class="slider"></span>
+            </label>
+            <span class="toggle-label">Enable Automated SfM Error Correction</span>
+          </div>
+
+          <div class="control-group checkbox-group">
+            <label class="toggle-switch">
+              <input type="checkbox" id="sinkFillingToggle" checked>
+              <span class="slider"></span>
+            </label>
+            <span class="toggle-label">Enable DEM Sink Filling & Breaching</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel glass-panel upload-panel">
+        <div class="panel-header">
+          <span class="icon">📤</span>
+          <h2>High-Speed Data Ingestion</h2>
+        </div>
+        <div class="panel-body">
+          <div class="upload-dropzone" id="dropZone">
+            <div class="dropzone-content">
+              <div class="upload-icon"></div>
+              <h3>Drag & Drop Drone Folders Here</h3>
+              <p>Supports recursive image parsing (20-25 GB datasets)</p>
+              <span class="or-divider">or</span>
+              <label class="custom-file-btn">
+                Select Folders
+                <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
+              </label>
+            </div>
+          </div>
+
+          <div class="upload-actions">
+            <button id="startUploadBtn" class="primary-btn" disabled>Start Resumable Upload</button>
+            <button id="resetUploadBtn" class="secondary-btn" disabled>Clear Data</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Row 2: Realtime upload tracking stats -->
+      <section class="panel glass-panel stats-panel full-width">
+        <div class="panel-header">
+          <span class="icon">📊</span>
+          <h2>Ingestion & Storage Metrics</h2>
+        </div>
+        <div class="stats-container">
+          <div class="stat-card">
+            <span class="stat-title">Ingested Files</span>
+            <span class="stat-value" id="statsFilesCount">0 / 0</span>
+            <span class="stat-sub" id="statsFolderCount">0 folders parsed</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-title">Upload Speed</span>
+            <span class="stat-value" id="statsSpeed">0.0 MB/s</span>
+            <span class="stat-sub" id="statsActiveConnections">0 active connections</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-title">Uploaded Volume</span>
+            <span class="stat-value" id="statsUploadedSize">0.0 MB / 0.0 MB</span>
+            <span class="stat-sub" id="statsPercentage">0% completed</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-title">Estimated Time</span>
+            <span class="stat-value" id="statsEta">--:--:--</span>
+            <span class="stat-sub">Target: Azure Blob Storage</span>
+          </div>
+        </div>
+        <!-- Progress bar container -->
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+      </section>
+
+      <!-- Row 3: Pipeline Flowchart -->
+      <section class="panel glass-panel pipeline-panel full-width">
+        <div class="panel-header">
+          <span class="icon">🧬</span>
+          <h2>GeoAI Automated Pipeline Execution</h2>
+        </div>
+        <div class="pipeline-track-wrapper">
+          <div class="pipeline-grid" id="pipelineGrid">
+            
+            <!-- Step 1 -->
+            <div class="pipeline-node pending" id="node-1">
+              <div class="node-number">1</div>
+              <div class="node-content">
+                <h3>Image Upload</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Chunked direct upload</div>
+              </div>
+            </div>
+            
+            <!-- Step 2 -->
+            <div class="pipeline-node pending" id="node-2">
+              <div class="node-number">2</div>
+              <div class="node-content">
+                <h3>Quality Control</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Blur & overlap check</div>
+              </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="pipeline-node pending" id="node-3">
+              <div class="node-number">3</div>
+              <div class="node-content">
+                <h3>Photogrammetry</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">ODM SfM alignment</div>
+              </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="pipeline-node pending" id="node-4">
+              <div class="node-number">4</div>
+              <div class="node-content">
+                <h3>Error Correction</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Outlier tie-point pruning</div>
+              </div>
+            </div>
+
+            <!-- Step 5 -->
+            <div class="pipeline-node pending" id="node-5">
+              <div class="node-number">5</div>
+              <div class="node-content">
+                <h3>DEM Validation</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Spike/sink corrections</div>
+              </div>
+            </div>
+
+            <!-- Step 6 -->
+            <div class="pipeline-node pending" id="node-6">
+              <div class="node-number">6</div>
+              <div class="node-content">
+                <h3>GIS Analysis</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Slope, curvature & TWI</div>
+              </div>
+            </div>
+
+            <!-- Step 7 -->
+            <div class="pipeline-node pending" id="node-7">
+              <div class="node-number">7</div>
+              <div class="node-content">
+                <h3>Vegetation Analysis</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">NDVI / VARI Index</div>
+              </div>
+            </div>
+
+            <!-- Step 8 -->
+            <div class="pipeline-node pending" id="node-8">
+              <div class="node-number">8</div>
+              <div class="node-content">
+                <h3>Grid Zonal Stats</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Configurable block binning</div>
+              </div>
+            </div>
+
+            <!-- Step 9 -->
+            <div class="pipeline-node pending" id="node-9">
+              <div class="node-number">9</div>
+              <div class="node-content">
+                <h3>GeoAI ML Layer</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">XGBoost risk classification</div>
+              </div>
+            </div>
+
+            <!-- Step 10 -->
+            <div class="pipeline-node pending" id="node-10">
+              <div class="node-number">10</div>
+              <div class="node-content">
+                <h3>AI Reporting</h3>
+                <span class="node-status">Pending</span>
+                <div class="node-details">Zonal recommendations</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- Row 4: Interactive Maps & Results Report -->
+      <section class="panel glass-panel map-panel">
+        <div class="panel-header map-header">
+          <div class="title-with-icon">
+            <span class="icon">🗺️</span>
+            <h2>Interactive GeoAI Spatial Viewer</h2>
+          </div>
+          <div class="map-layers" id="mapLayersContainer">
+            <button class="layer-btn active" data-layer="raw">Cameras</button>
+            <button class="layer-btn" data-layer="ortho" disabled>Orthomosaic</button>
+            <button class="layer-btn" data-layer="dem" disabled>DEM Elevation</button>
+            <button class="layer-btn" data-layer="twi" disabled>Topography/TWI</button>
+            <button class="layer-btn" data-layer="ndvi" disabled>NDVI Crop Health</button>
+            <button class="layer-btn" data-layer="ml" disabled>ML Risk Grids</button>
+          </div>
+        </div>
+        <div class="canvas-container" id="canvasContainer">
+          <div class="canvas-instructions" id="canvasInstruction">
+            <div class="pointer-hand"></div>
+            Upload folders of drone images to visualize camera path alignment and output layer generation.
+          </div>
+          <canvas id="gisCanvas"></canvas>
+          
+          <!-- Compass and scale overlays -->
+          <div class="map-controls">
+            <button class="map-tool-btn" id="btnZoomIn">+</button>
+            <button class="map-tool-btn" id="btnZoomOut">-</button>
+            <button class="map-tool-btn" id="btnResetView">🧭</button>
+          </div>
+          <div class="map-scale" id="mapScaleIndicator">Scale: 1px = 0.5m</div>
+        </div>
+      </section>
+
+      <section class="panel glass-panel report-panel">
+        <div class="panel-header">
+          <span class="icon">📄</span>
+          <h2>GeoAI Agronomic Decision Report</h2>
+        </div>
+        <div class="panel-body report-body scrollable-content" id="reportContent">
+          <div class="empty-report-state">
+            <div class="doc-icon"></div>
+            <h3>Agronomic Report Staged</h3>
+            <p>Complete the photogrammetry and machine learning pipeline to generate AI reports, drainage metrics, crop recommendations, and land classification maps.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>&copy; 2026 Antigravity GeoAI Systems. Powered by OpenDroneMap and WhiteboxTools (Offline Engine).</p>
+      <div class="footer-links">
+        <a href="file:///Users/sukshas/.gemini/antigravity/brain/6894357f-c23d-4dbb-b7f1-2a2a11d69d37/system_architecture.md" target="_blank">View System Architecture Guide</a>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

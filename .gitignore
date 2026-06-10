@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+*.pkl
+*.joblib
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Node / React
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.log
+
+# Data (large files — commit samples only)
+data/raw/*.tif
+data/raw/*.las
+data/raw/*.shp
+data/raw/*.dbf
+data/raw/*.shx
+data/processed/*.parquet
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/settings.json

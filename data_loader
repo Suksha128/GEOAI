@@ -1,0 +1,378 @@
+"""
+STEP 1 — DATA LOADER
+====================
+Reads QGIS-exported rasters and shapefiles, computes spectral indices,
+and builds a per-field feature vector DataFrame ready for ML models.
+
+Expected QGIS exports in data/ folder:
+  dem.tif          — Digital Elevation Model
+  slope.tif        — Slope (degrees) from QGIS → Raster Terrain Analysis
+  aspect.tif       — Aspect (degrees)
+  twi.tif          — Topographic Wetness Index (from SAGA via QGIS)
+  ndvi.tif         — NDVI computed in QGIS Band Math or here from orthomosaic
+  ndwi.tif         — NDWI
+  orthomosaic.tif  — RGB or multispectral orthomosaic (Metashape output)
+  fields.shp       — Field polygon boundaries (shapefile from QGIS)
+  weather.csv      — Weather data (date, rainfall_mm, temp_max, temp_min, humidity)
+  soil.csv         — Soil data (field_id, ph, clay_pct, sand_pct, moisture_pct, nitrogen)
+
+Usage:
+  from data_loader import load_all_features
+  df = load_all_features("data/")
+"""#copernicus
+
+import os
+import warnings
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+import rasterio
+from rasterstats import zonal_stats
+
+warnings.filterwarnings("ignore")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPECTRAL INDEX COMPUTATION FROM ORTHOMOSAIC
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_spectral_indices(ortho_path: str, output_dir: str) -> dict:
+    """
+    Compute NDVI and NDWI from the orthomosaic if not already exported from QGIS.
+    For multispectral (5-band): B1=Blue, B2=Green, B3=Red, B4=RedEdge, B5=NIR
+    For RGB only: uses approximation (NIR not available — returns None for NDWI)
+
+    Returns: dict of {index_name: output_tif_path}
+    """
+    with rasterio.open(ortho_path) as src:
+        n_bands = src.count
+        meta = src.meta.copy()
+        meta.update(dtype="float32", count=1, nodata=-9999)
+
+        if n_bands >= 4:
+            # Multispectral: band 3 = Red, band 5 (or 4) = NIR
+            red = src.read(3).astype(np.float32)
+            nir = src.read(min(5, n_bands)).astype(np.float32)
+            green = src.read(2).astype(np.float32)
+        else:
+            # RGB only: Red=B1, Green=B2 (no real NIR)
+            red   = src.read(1).astype(np.float32)
+            green = src.read(2).astype(np.float32)
+            nir   = None
+
+    results = {}
+
+    # NDVI  = (NIR - Red) / (NIR + Red)
+    if nir is not None:
+        ndvi = np.where(
+            (nir + red) != 0,
+            (nir - red) / (nir + red + 1e-8),
+            -9999
+        ).astype(np.float32)
+        ndvi_path = os.path.join(output_dir, "ndvi.tif")
+        with rasterio.open(ndvi_path, "w", **meta) as dst:
+            dst.write(ndvi, 1)
+        results["ndvi"] = ndvi_path
+
+        # NDWI = (Green - NIR) / (Green + NIR)
+        ndwi = np.where(
+            (green + nir) != 0,
+            (green - nir) / (green + nir + 1e-8),
+            -9999
+        ).astype(np.float32)
+        ndwi_path = os.path.join(output_dir, "ndwi.tif")
+        with rasterio.open(ndwi_path, "w", **meta) as dst:
+            dst.write(ndwi, 1)
+        results["ndwi"] = ndwi_path
+    else:
+        print("[WARN] RGB-only orthomosaic: NDVI/NDWI cannot be accurately computed. "
+              "Use multispectral imagery for crop analysis.")
+
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ZONAL STATISTICS EXTRACTION (per field polygon)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_zonal_stats(fields_gdf: gpd.GeoDataFrame,
+                        raster_path: str,
+                        prefix: str) -> pd.DataFrame:
+    """
+    For each field polygon, extract: mean, min, max, std of raster values.
+    Returns a DataFrame with columns like ndvi_mean, ndvi_std, etc.
+    """
+    if not os.path.exists(raster_path):
+        print(f"[SKIP] Raster not found: {raster_path}")
+        return pd.DataFrame(index=fields_gdf.index)
+
+    stats = zonal_stats(
+        fields_gdf,
+        raster_path,
+        stats=["mean", "min", "max", "std"],
+        nodata=-9999,
+        geojson_out=False,
+    )
+    df = pd.DataFrame(stats)
+    df.columns = [f"{prefix}_{c}" for c in df.columns]
+    return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WEATHER FEATURE ENGINEERING
+# ─────────────────────────────────────────────────────────────────────────────
+
+def process_weather(weather_csv: str) -> dict:
+    """
+    Reads weather.csv and computes aggregate features:
+      - rainfall_7d    : total rainfall last 7 days
+      - rainfall_30d   : total rainfall last 30 days
+      - temp_avg       : mean temperature
+      - humidity_avg   : mean humidity
+      - dry_days_14    : number of consecutive dry days in last 14 days
+    """
+    if not os.path.exists(weather_csv):
+        print("[WARN] weather.csv not found — using zeros for weather features")
+        return {
+            "rainfall_7d": 0.0, "rainfall_30d": 0.0,
+            "temp_avg": 28.0, "humidity_avg": 65.0, "dry_days_14": 0
+        }
+
+    df = pd.read_csv(weather_csv, parse_dates=["date"])
+    df = df.sort_values("date").tail(30).reset_index(drop=True)
+
+    rainfall_7d  = df["rainfall_mm"].tail(7).sum()
+    rainfall_30d = df["rainfall_mm"].sum()
+    temp_avg     = df["temp_max"].mean()
+    humidity_avg = df["humidity"].mean() if "humidity" in df.columns else 65.0
+
+    # Count dry days (rainfall < 1mm) from most recent day going backward
+    dry_streak = 0
+    for val in reversed(df["rainfall_mm"].tail(14).tolist()):
+        if val < 1.0:
+            dry_streak += 1
+        else:
+            break
+
+    return {
+        "rainfall_7d":  round(rainfall_7d, 2),
+        "rainfall_30d": round(rainfall_30d, 2),
+        "temp_avg":     round(temp_avg, 2),
+        "humidity_avg": round(humidity_avg, 2),
+        "dry_days_14":  dry_streak,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN FEATURE ASSEMBLY
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_all_features(data_dir: str) -> gpd.GeoDataFrame:
+    """
+    Master function — assembles the complete per-field feature DataFrame.
+
+    Returns a GeoDataFrame with columns:
+      field_id, geometry,
+      dem_mean, slope_mean, aspect_mean, twi_mean,
+      ndvi_mean, ndvi_std, ndwi_mean,
+      rainfall_7d, rainfall_30d, temp_avg, humidity_avg, dry_days_14,
+      ph, clay_pct, sand_pct, moisture_pct, nitrogen,
+      [optional: hist_yield_mean if historical data exists]
+    """
+    print("=" * 60)
+    print("STEP 1 — Loading and assembling feature data")
+    print("=" * 60)
+
+    # ── 1a. Load field polygons ───────────────────────────────────────────────
+    fields_path = os.path.join(data_dir, "fields.shp")
+    if not os.path.exists(fields_path):
+        # Try GeoJSON fallback
+        fields_path = os.path.join(data_dir, "fields.geojson")
+    
+    if not os.path.exists(fields_path):
+        raise FileNotFoundError(
+            f"Field boundary file not found in {data_dir}. "
+            "Export your field polygons from QGIS as fields.shp or fields.geojson"
+        )
+
+    fields = gpd.read_file(fields_path)
+    print(f"  Loaded {len(fields)} field polygons")
+
+    # Ensure field_id column exists
+    if "field_id" not in fields.columns:
+        fields["field_id"] = [f"FIELD_{i+1:03d}" for i in range(len(fields))]
+
+    # Reproject to UTM (metres) for accurate area calculation
+    fields_utm = fields.to_crs(epsg=32644)  # UTM Zone 44N — covers Tamil Nadu
+    fields["area_ha"] = fields_utm.geometry.area / 10000  # m² → hectares
+
+    # ── 1b. Compute spectral indices if not pre-exported ─────────────────────
+    ortho_path = os.path.join(data_dir, "orthomosaic.tif")
+    if os.path.exists(ortho_path):
+        if not os.path.exists(os.path.join(data_dir, "ndvi.tif")):
+            print("  Computing spectral indices from orthomosaic...")
+            compute_spectral_indices(ortho_path, data_dir)
+
+    # ── 1c. Extract zonal statistics for each raster layer ───────────────────
+    raster_layers = {
+        "dem":    os.path.join(data_dir, "dem.tif"),
+        "slope":  os.path.join(data_dir, "slope.tif"),
+        "aspect": os.path.join(data_dir, "aspect.tif"),
+        "twi":    os.path.join(data_dir, "twi.tif"),
+        "ndvi":   os.path.join(data_dir, "ndvi.tif"),
+        "ndwi":   os.path.join(data_dir, "ndwi.tif"),
+    }
+
+    all_stats = [fields[["field_id", "area_ha", "geometry"]].reset_index(drop=True)]
+
+    for layer_name, raster_path in raster_layers.items():
+        print(f"  Extracting zonal stats: {layer_name}")
+        stats_df = extract_zonal_stats(fields, raster_path, prefix=layer_name)
+        all_stats.append(stats_df)
+
+    features = pd.concat(all_stats, axis=1)
+
+    # ── 1d. Weather features (broadcast to all fields — same per date) ────────
+    weather = process_weather(os.path.join(data_dir, "weather.csv"))
+    for k, v in weather.items():
+        features[k] = v
+    print(f"  Weather: rainfall_7d={weather['rainfall_7d']}mm, dry_days={weather['dry_days_14']}")
+
+    # ── 1e. Soil data (per-field if available, else broadcast mean) ───────────
+    soil_path = os.path.join(data_dir, "soil.csv")
+    if os.path.exists(soil_path):
+        soil = pd.read_csv(soil_path)
+        if "field_id" in soil.columns:
+            features = features.merge(soil, on="field_id", how="left")
+        else:
+            # Broadcast single measurement to all fields
+            for col in ["ph", "clay_pct", "sand_pct", "moisture_pct", "nitrogen"]:
+                if col in soil.columns:
+                    features[col] = soil[col].iloc[0]
+        print(f"  Soil data loaded: {soil.shape[0]} records")
+    else:
+        print("  [WARN] soil.csv not found — using default soil values")
+        features["ph"]           = 6.5
+        features["clay_pct"]     = 25.0
+        features["sand_pct"]     = 40.0
+        features["moisture_pct"] = 35.0
+        features["nitrogen"]     = 180.0  # kg/ha
+
+    # ── 1f. Historical yield data (optional) ─────────────────────────────────
+    hist_path = os.path.join(data_dir, "historical_yield.csv")
+    if os.path.exists(hist_path):
+        hist = pd.read_csv(hist_path)
+        if "field_id" in hist.columns and "yield_t_ha" in hist.columns:
+            hist_agg = hist.groupby("field_id")["yield_t_ha"].mean().reset_index()
+            hist_agg.columns = ["field_id", "hist_yield_mean"]
+            features = features.merge(hist_agg, on="field_id", how="left")
+    else:
+        features["hist_yield_mean"] = 3.5  # default regional average (tonnes/ha)
+
+    # ── 1g. Fill any remaining NaNs with column medians ──────────────────────
+    numeric_cols = features.select_dtypes(include=[np.number]).columns
+    features[numeric_cols] = features[numeric_cols].fillna(
+        features[numeric_cols].median()
+    )
+
+    print(f"\n  Feature matrix: {len(features)} fields × {len(features.columns)} columns")
+    print(f"  Columns: {list(features.columns)}\n")
+
+    return gpd.GeoDataFrame(features, geometry="geometry", crs=fields.crs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SYNTHETIC DATA GENERATOR — use when you don't have real data yet
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_synthetic_data(n_fields: int = 20, output_dir: str = "data/") -> gpd.GeoDataFrame:
+    """
+    Generates realistic synthetic feature data for testing the full pipeline
+    without real drone/QGIS data. Fields are placed in a grid around
+    a central Tamil Nadu coordinate (Coimbatore area).
+    """
+    from shapely.geometry import box
+    import random
+
+    np.random.seed(42)
+    random.seed(42)
+
+    base_lon, base_lat = 77.0, 11.0   # Coimbatore, TN
+    cell_size = 0.003                  # ~300m per side at this latitude
+
+    records = []
+    for i in range(n_fields):
+        row, col = divmod(i, 5)
+        minx = base_lon + col * cell_size
+        miny = base_lat + row * cell_size
+        geom = box(minx, miny, minx + cell_size, miny + cell_size)
+
+        # Correlated synthetic features
+        slope     = np.random.uniform(0, 15)
+        twi       = max(0, 12 - slope * 0.5 + np.random.normal(0, 1))  # low slope → high TWI → waterlogging
+        ndvi      = np.random.uniform(0.2, 0.75)
+        ndwi      = np.random.uniform(-0.3, 0.4)
+        rainfall  = np.random.uniform(0, 80)
+        moisture  = min(100, max(5, 40 - slope * 1.2 + rainfall * 0.3 + np.random.normal(0, 5)))
+
+        # Waterlogging ground truth: high TWI + high rainfall + low slope + high clay
+        clay = np.random.uniform(15, 50)
+        wl_score = (twi / 15) * 0.35 + (rainfall / 80) * 0.30 + (clay / 50) * 0.20 + (1 - slope / 15) * 0.15
+        waterlogging_risk = int(wl_score > 0.5)  # binary label
+
+        # Yield ground truth: NDVI + soil quality + weather
+        base_yield = 4.0
+        yield_t_ha = max(0, base_yield
+                         + ndvi * 2.0
+                         - (1 if waterlogging_risk else 0) * 1.2
+                         + (moisture / 100) * 0.5
+                         - (slope / 15) * 0.3
+                         + np.random.normal(0, 0.3))
+
+        records.append({
+            "field_id":      f"FIELD_{i+1:03d}",
+            "geometry":       geom,
+            "area_ha":        np.random.uniform(0.5, 5.0),
+            "dem_mean":       np.random.uniform(80, 200),
+            "dem_std":        np.random.uniform(1, 10),
+            "slope_mean":     slope,
+            "slope_std":      np.random.uniform(0.5, 3),
+            "aspect_mean":    np.random.uniform(0, 360),
+            "twi_mean":       twi,
+            "twi_std":        np.random.uniform(0.5, 2),
+            "ndvi_mean":      ndvi,
+            "ndvi_std":       np.random.uniform(0.01, 0.08),
+            "ndwi_mean":      ndwi,
+            "ndwi_std":       np.random.uniform(0.01, 0.06),
+            "rainfall_7d":    rainfall,
+            "rainfall_30d":   rainfall * np.random.uniform(2.5, 4.5),
+            "temp_avg":       np.random.uniform(24, 35),
+            "humidity_avg":   np.random.uniform(55, 90),
+            "dry_days_14":    int(np.random.uniform(0, 10)),
+            "ph":             np.random.uniform(5.5, 7.8),
+            "clay_pct":       clay,
+            "sand_pct":       np.random.uniform(20, 55),
+            "moisture_pct":   moisture,
+            "nitrogen":       np.random.uniform(100, 280),
+            "hist_yield_mean":np.random.uniform(2.5, 5.0),
+            # Ground truth labels (for training / evaluation)
+            "waterlogging_risk_label": waterlogging_risk,
+            "yield_t_ha_label":        round(yield_t_ha, 2),
+        })
+
+    gdf = gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+    print(f"[SYNTHETIC] Generated {n_fields} fields with correlated features and ground-truth labels")
+    return gdf
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--synthetic":
+        df = generate_synthetic_data(n_fields=30)
+        df.to_file("/home/claude/geoai/data/synthetic_fields.geojson", driver="GeoJSON")
+        print(df[["field_id", "ndvi_mean", "twi_mean", "slope_mean",
+                   "waterlogging_risk_label", "yield_t_ha_label"]].to_string())
+    else:
+        df = load_all_features("data/")
+        print(df.head())

@@ -1,0 +1,631 @@
+/**
+ * Main Application Entry Point & Orchestrator
+ * Supports Dual-Mode: Simulated Offline Mode (Port 5500) and Live API Mode (Port 8000)
+ */
+import { IngestionManager } from './uploader.js';
+import { CanvasRenderer } from './renderer.js';
+import { generateAIReport } from './reporter.js';
+
+// Global State
+const state = {
+  currentStep: 0,
+  pipelineCompleted: false,
+  fieldData: null,
+  projectId: "offline_project",
+  liveMode: false,
+  statusPollInterval: null,
+  
+  // Configurations
+  concurrencyLimit: 12,
+  gridSize: 10,
+  vegIndexMode: 'auto',
+  errorCorrectionEnabled: true,
+  sinkFillingEnabled: true,
+};
+
+// UI Elements
+const dropZone = document.getElementById('dropZone');
+const folderInput = document.getElementById('folderInput');
+const startUploadBtn = document.getElementById('startUploadBtn');
+const resetUploadBtn = document.getElementById('resetUploadBtn');
+const concurrencySlider = document.getElementById('concurrencySlider');
+const concurrencyVal = document.getElementById('concurrencyVal');
+const gridSizeSelect = document.getElementById('gridSizeSelect');
+const vegIndexSelect = document.getElementById('vegIndexSelect');
+const errorCorrectionToggle = document.getElementById('errorCorrectionToggle');
+const sinkFillingToggle = document.getElementById('sinkFillingToggle');
+
+const statsFilesCount = document.getElementById('statsFilesCount');
+const statsFolderCount = document.getElementById('statsFolderCount');
+const statsSpeed = document.getElementById('statsSpeed');
+const statsActiveConnections = document.getElementById('statsActiveConnections');
+const statsUploadedSize = document.getElementById('statsUploadedSize');
+const statsPercentage = document.getElementById('statsPercentage');
+const progressBar = document.getElementById('progressBar');
+const statsEta = document.getElementById('statsEta');
+
+const systemStatusDot = document.getElementById('systemStatusDot');
+const systemStatusText = document.getElementById('systemStatusText');
+const reportContent = document.getElementById('reportContent');
+const canvasInstruction = document.getElementById('canvasInstruction');
+
+// Instances
+let uploader = null;
+let renderer = null;
+
+// Initialize
+function init() {
+  // 1. Detect environment
+  state.liveMode = window.location.port === "8000";
+  console.log(`[GeoAI Platform] Initialized in ${state.liveMode ? 'LIVE' : 'SIMULATED'} mode`);
+  
+  // Update badge in UI to reflect port mapping
+  const badge = document.querySelector('.azure-badge');
+  if (badge) {
+    badge.innerText = state.liveMode ? "API Active (Local)" : "Offline Sandbox";
+  }
+
+  // 2. Generate local field database
+  generateProceduralFieldData();
+  
+  // 3. Initialize modules
+  uploader = new IngestionManager({
+    onProgress: (metrics) => {
+      statsFilesCount.innerText = `${metrics.uploadedFiles} / ${metrics.totalFiles}`;
+      statsUploadedSize.innerText = `${formatBytes(metrics.uploadedSize)} / ${formatBytes(metrics.totalSize)}`;
+      statsPercentage.innerText = `${Math.round(metrics.percentage)}% completed`;
+      progressBar.style.width = `${metrics.percentage}%`;
+      statsActiveConnections.innerText = `${metrics.activeConnections} active connections`;
+      
+      if (metrics.speedMBs !== undefined) {
+        statsSpeed.innerText = `${metrics.speedMBs.toFixed(1)} MB/s`;
+      }
+      if (metrics.eta !== undefined) {
+        statsEta.innerText = metrics.eta;
+      }
+
+      // Update Node 1 details
+      const node1 = document.getElementById('node-1');
+      if (node1) {
+        node1.querySelector('.node-details').innerText = `${metrics.uploadedFiles} / ${metrics.totalFiles} images`;
+      }
+    },
+    onStatusChange: (change) => {
+      if (change.status === 'uploading') {
+        updateSystemStatus(change.text, 'pulse-blue');
+        updatePipelineStep(1, 'active', 'Uploading...');
+      }
+    },
+    onComplete: () => {
+      statsSpeed.innerText = '0.0 MB/s';
+      statsActiveConnections.innerText = '0 active connections';
+      statsEta.innerText = '00:00:00';
+      
+      updatePipelineStep(1, 'completed', 'Completed', `${uploader.files.length} images`);
+      
+      if (state.liveMode) {
+        startLiveBackendPipeline();
+      } else {
+        runProcessingPipelineSimulated();
+      }
+    },
+    onFileParsed: (meta) => {
+      statsFilesCount.innerText = `0 / ${meta.filesCount}`;
+      statsFolderCount.innerText = `${meta.foldersCount} folder(s) parsed`;
+      statsUploadedSize.innerText = `0.0 MB / ${formatBytes(meta.totalSize)}`;
+      statsPercentage.innerText = '0% completed';
+      
+      startUploadBtn.disabled = meta.filesCount === 0;
+      resetUploadBtn.disabled = meta.filesCount === 0;
+      
+      updateSystemStatus('Upload Ready - Awaiting Trigger', 'pulse-green');
+      resetPipelineUI();
+      
+      renderer.setFieldData(state.fieldData);
+      renderer.setPipelineStep(0);
+      canvasInstruction.style.display = 'none';
+    }
+  });
+
+  renderer = new CanvasRenderer(
+    document.getElementById('gisCanvas'),
+    document.getElementById('canvasContainer')
+  );
+
+  // 4. Bind UI events
+  initUIEvents();
+}
+
+function initUIEvents() {
+  // Concurrency slider
+  concurrencySlider.addEventListener('input', (e) => {
+    state.concurrencyLimit = parseInt(e.target.value);
+    concurrencyVal.innerText = state.concurrencyLimit;
+  });
+
+  // Checkbox config changes
+  gridSizeSelect.addEventListener('change', (e) => {
+    state.gridSize = parseInt(e.target.value);
+    renderer.setGridSize(state.gridSize);
+    if (state.pipelineCompleted) {
+      triggerReportRecompile();
+    }
+  });
+
+  vegIndexSelect.addEventListener('change', (e) => {
+    state.vegIndexMode = e.target.value;
+    if (state.pipelineCompleted) {
+      triggerReportRecompile();
+    }
+  });
+
+  errorCorrectionToggle.addEventListener('change', (e) => {
+    state.errorCorrectionEnabled = e.target.checked;
+  });
+
+  sinkFillingToggle.addEventListener('change', (e) => {
+    state.sinkFillingEnabled = e.target.checked;
+  });
+
+  // Ingest operations
+  folderInput.addEventListener('change', (e) => {
+    uploader.parseFileList(e.target.files);
+  });
+
+  // Drag over dropzone
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.items) {
+      await uploader.parseDroppedItems(e.dataTransfer.items);
+    }
+  });
+
+  // Start upload action
+  startUploadBtn.addEventListener('click', () => {
+    if (uploader.uploadActive) return;
+    startUploadBtn.disabled = true;
+    concurrencySlider.disabled = true;
+    
+    // Assign project ID
+    state.projectId = state.liveMode ? "proj_" + Date.now() : "offline_project";
+    uploader.startUpload(state.concurrencyLimit, state.liveMode, state.projectId);
+  });
+
+  // Reset upload action
+  resetUploadBtn.addEventListener('click', () => {
+    if (state.statusPollInterval) clearInterval(state.statusPollInterval);
+    uploader.reset();
+    resetUploadUI();
+    resetPipelineUI();
+    renderer.setFieldData(null);
+    canvasInstruction.style.display = 'flex';
+  });
+}
+
+// LIVE BACKEND INTERACTION
+function startLiveBackendPipeline() {
+  updateSystemStatus('Starting photogrammetry API pipeline...', 'pulse-blue');
+  
+  fetch(`/api/pipeline/start/${state.projectId}`, { method: 'POST' })
+    .then(res => {
+      if (!res.ok) throw new Error("FastAPI pipeline starter failed");
+      return res.json();
+    })
+    .then(() => {
+      // Begin status polling
+      state.statusPollInterval = setInterval(pollLivePipelineStatus, 1000);
+    })
+    .catch(err => {
+      console.error(err);
+      updateSystemStatus('API Start Failed - Check Server Console', 'pulse-red');
+    });
+}
+
+function pollLivePipelineStatus() {
+  fetch(`/api/pipeline/status/${state.projectId}`)
+    .then(res => {
+      if (!res.ok) throw new Error("Status query failed");
+      return res.json();
+    })
+    .then(data => {
+      const stepIdx = data.step;
+      const pipelineStatus = data.status;
+      const message = data.message;
+      
+      // Update UI Header Status
+      updateSystemStatus(`[Live Backend] ${message}`, pipelineStatus === 'failed' ? 'pulse-red' : 'pulse-orange');
+      
+      // Light up nodes sequentially
+      for (let i = 2; i <= 10; i++) {
+        if (i < stepIdx) {
+          updatePipelineStep(i, 'completed', 'Completed');
+        } else if (i === stepIdx && pipelineStatus !== 'completed') {
+          updatePipelineStep(i, 'active', 'Processing...');
+          renderer.setPipelineStep(i);
+        } else {
+          updatePipelineStep(i, 'pending', 'Pending');
+        }
+      }
+
+      // Update layers dynamically based on pipeline completion steps
+      if (stepIdx > 3) {
+        enableLayer('ortho');
+        enableLayer('dem');
+      }
+      if (stepIdx > 6) {
+        enableLayer('twi');
+      }
+      if (stepIdx > 7) {
+        enableLayer('ndvi');
+      }
+      if (stepIdx > 9) {
+        enableLayer('ml');
+      }
+
+      // If pipeline completed successfully
+      if (pipelineStatus === 'completed') {
+        clearInterval(state.statusPollInterval);
+        state.pipelineCompleted = true;
+        updatePipelineStep(10, 'completed', 'Completed', 'Brief ready');
+        updateSystemStatus('Pipeline Executed Successfully - Complete', 'pulse-green');
+        
+        // Show AI report
+        if (data.report_html) {
+          reportContent.innerHTML = data.report_html;
+        } else {
+          triggerReportRecompile();
+        }
+        
+        // Map layers trigger view
+        renderer.setLayer('ml');
+        const mlBtn = document.querySelector(`.layer-btn[data-layer="ml"]`);
+        if (mlBtn) {
+          document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+          mlBtn.classList.add('active');
+        }
+      }
+      
+      if (pipelineStatus === 'failed') {
+        clearInterval(state.statusPollInterval);
+        updateSystemStatus(`Pipeline Failed: ${message}`, 'pulse-red');
+      }
+    })
+    .catch(err => {
+      console.error("Polling error:", err);
+    });
+}
+
+// SIMULATED PIPELINE FLOW (Offline fallback)
+const stepQueue = [];
+let isStepRunning = false;
+
+function runProcessingPipelineSimulated() {
+  state.pipelineCompleted = false;
+  stepQueue.length = 0; 
+  isStepRunning = false;
+
+  enqueueStep(2, 2500, () => {
+    const failedCount = state.fieldData.cameras.filter(c => !c.qcPassed).length;
+    const totalCount = state.fieldData.cameras.length;
+    
+    if (failedCount > 0) {
+      updatePipelineStep(2, 'warning', 'QC Flagged', `${failedCount} flagged / ${totalCount} passed`);
+    } else {
+      updatePipelineStep(2, 'completed', 'Passed', `${totalCount} images checked`);
+    }
+    renderer.setPipelineStep(2);
+  });
+
+  enqueueStep(3, 4000, () => {
+    updatePipelineStep(3, 'completed', 'Optimized', 'GSD: 2.1cm, RMS: 0.12px');
+    enableLayer('ortho');
+    enableLayer('dem');
+    renderer.setPipelineStep(3);
+    renderer.setLayer('ortho');
+  });
+
+  enqueueStep(4, 3000, () => {
+    if (state.errorCorrectionEnabled) {
+      updatePipelineStep(4, 'completed', 'Corrected', 'Outliers pruned (re-optimized)');
+    } else {
+      updatePipelineStep(4, 'warning', 'Skipped', 'Self-calibration disabled');
+    }
+  });
+
+  enqueueStep(5, 2500, () => {
+    if (state.sinkFillingEnabled) {
+      updatePipelineStep(5, 'completed', 'Validated', 'Wang-Liu sink filling applied');
+    } else {
+      updatePipelineStep(5, 'warning', 'Bypassed', 'Raw DEM outputs preserved');
+    }
+  });
+
+  enqueueStep(6, 3500, () => {
+    updatePipelineStep(6, 'completed', 'Calculated', 'Slope, Aspect, D8 Flow, TWI');
+    enableLayer('twi');
+  });
+
+  enqueueStep(7, 2500, () => {
+    let details = 'NDVI calculated';
+    if (state.vegIndexMode === 'vari') details = 'VARI fallback applied';
+    else if (state.vegIndexMode === 'auto') details = 'Auto detected NIR bands';
+    
+    updatePipelineStep(7, 'completed', 'Computed', details);
+    enableLayer('ndvi');
+    renderer.setLayer('ndvi');
+  });
+
+  enqueueStep(8, 2000, () => {
+    updatePipelineStep(8, 'completed', 'Aggregated', `Zonal stats on ${state.gridSize}m grid`);
+  });
+
+  enqueueStep(9, 3000, () => {
+    updatePipelineStep(9, 'completed', 'Predicted', 'XGBoost multi-risk classification');
+    enableLayer('ml');
+    renderer.setLayer('ml');
+  });
+
+  enqueueStep(10, 2000, () => {
+    updatePipelineStep(10, 'completed', 'Generated', 'Decision support brief ready');
+    
+    state.pipelineCompleted = true;
+    triggerReportRecompile();
+    updateSystemStatus('Pipeline Executed Successfully - Complete', 'pulse-green');
+  });
+
+  processNextStep();
+}
+
+function enqueueStep(stepIndex, duration, completionCallback) {
+  stepQueue.push({ stepIndex, duration, completionCallback });
+}
+
+function processNextStep() {
+  if (isStepRunning || stepQueue.length === 0) return;
+  
+  isStepRunning = true;
+  const { stepIndex, duration, completionCallback } = stepQueue.shift();
+  
+  updatePipelineStep(stepIndex, 'active', 'Processing...');
+  updateSystemStatus(`Processing Stage ${stepIndex}: ${getStepName(stepIndex)}`, 'pulse-orange');
+
+  setTimeout(() => {
+    completionCallback();
+    isStepRunning = false;
+    processNextStep();
+  }, duration);
+}
+
+function getStepName(idx) {
+  const names = [
+    '', 'Upload', 'Quality Control', 'Photogrammetry', 'Error Correction',
+    'DEM Validation', 'GIS Analysis', 'Vegetation Analysis', 'Grid Zonal Stats',
+    'GeoAI ML Layer', 'AI Reporting'
+  ];
+  return names[idx] || '';
+}
+
+function updatePipelineStep(stepIndex, statusClass, statusText, detailsText = null) {
+  const node = document.getElementById(`node-${stepIndex}`);
+  if (!node) return;
+  
+  node.className = `pipeline-node ${statusClass}`;
+  node.querySelector('.node-status').innerText = statusText;
+  if (detailsText) {
+    node.querySelector('.node-details').innerText = detailsText;
+  }
+}
+
+function triggerReportRecompile() {
+  const failedCount = state.fieldData.cameras.filter(c => !c.qcPassed).length;
+  const totalCount = state.fieldData.cameras.length;
+
+  const html = generateAIReport({
+    totalFiles: totalCount,
+    flaggedFiles: failedCount,
+    gridSize: state.gridSize,
+    vegIndexMode: state.vegIndexMode
+  });
+  reportContent.innerHTML = html;
+}
+
+// UTILITIES
+function formatBytes(bytes, decimals = 2) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+function updateSystemStatus(text, pulseClass) {
+  systemStatusDot.className = 'status-dot';
+  systemStatusDot.classList.add(pulseClass);
+  systemStatusText.innerText = text;
+}
+
+function resetUploadUI() {
+  statsFilesCount.innerText = '0 / 0';
+  statsFolderCount.innerText = '0 folders parsed';
+  statsSpeed.innerText = '0.0 MB/s';
+  statsActiveConnections.innerText = '0 active connections';
+  statsUploadedSize.innerText = '0.0 MB / 0.0 MB';
+  statsPercentage.innerText = '0% completed';
+  progressBar.style.width = '0%';
+  statsEta.innerText = '--:--:--';
+  
+  startUploadBtn.disabled = true;
+  resetUploadBtn.disabled = true;
+  concurrencySlider.disabled = false;
+  folderInput.value = '';
+
+  updateSystemStatus('System Ready - Idle', 'pulse-green');
+}
+
+function resetPipelineUI() {
+  const nodes = document.querySelectorAll('.pipeline-node');
+  nodes.forEach(node => {
+    node.className = 'pipeline-node pending';
+    node.querySelector('.node-status').innerText = 'Pending';
+  });
+
+  const layerBtns = document.querySelectorAll('.layer-btn');
+  layerBtns.forEach(btn => {
+    if (btn.getAttribute('data-layer') !== 'raw') {
+      btn.disabled = true;
+      btn.classList.remove('active');
+    } else {
+      btn.classList.add('active');
+    }
+  });
+  renderer.setLayer('raw');
+  
+  reportContent.innerHTML = `
+    <div class="empty-report-state">
+      <div class="doc-icon"></div>
+      <h3>Agronomic Report Staged</h3>
+      <p>Complete the photogrammetry and machine learning pipeline to generate AI reports, drainage metrics, crop recommendations, and land classification maps.</p>
+    </div>
+  `;
+}
+
+// Procedural Field DB Generator (Same as old layout)
+function generateProceduralFieldData() {
+  const width = 800;
+  const height = 600;
+  const data = {
+    width,
+    height,
+    cameras: [],
+    elevation: [],
+    flowPaths: [],
+    vegetation: [],
+    grids: {}
+  };
+
+  const rows = 12;
+  const cols = 16;
+  const rowSpacing = height / (rows + 1);
+  const colSpacing = width / (cols + 1);
+
+  for (let r = 0; r < rows; r++) {
+    const y = rowSpacing * (r + 1);
+    const colsRange = r % 2 === 0 ? Array.from({length: cols}, (_, i) => i) : Array.from({length: cols}, (_, i) => cols - 1 - i);
+    
+    for (const c of colsRange) {
+      const x = colSpacing * (c + 1);
+      const gpsDriftX = (Math.random() - 0.5) * 6;
+      const gpsDriftY = (Math.random() - 0.5) * 6;
+      
+      data.cameras.push({
+        id: data.cameras.length,
+        x: x + gpsDriftX,
+        y: y + gpsDriftY,
+        z: 80 + (Math.random() - 0.5) * 2,
+        filename: `DJI_${String(data.cameras.length).padStart(4, '0')}.JPG`,
+        pitch: (Math.random() - 0.5) * 2,
+        roll: (Math.random() - 0.5) * 2,
+        yaw: r % 2 === 0 ? 0 : 180,
+        qcPassed: true
+      });
+    }
+  }
+
+  // Faulty images
+  const faultyIndices = [15, 42, 88, 120];
+  faultyIndices.forEach(idx => {
+    if (data.cameras[idx]) {
+      data.cameras[idx].qcPassed = false;
+    }
+  });
+
+  // Elevation matrix
+  for (let y = 0; y < height; y += 4) {
+    const row = [];
+    for (let x = 0; x < width; x += 4) {
+      const valley = Math.abs(y - (height / 2 + Math.sin(x / 100) * 80)) * 0.3;
+      const distToHill = Math.hypot(x - 700, y - 100);
+      const hill = Math.max(0, 150 - distToHill * 0.4);
+      row.push(150 + valley + hill + (Math.random() - 0.5) * 2);
+    }
+    data.elevation.push(row);
+  }
+
+  // Flow channels
+  for (let x = 20; x < width; x += 60) {
+    const path = [];
+    let curX = x;
+    let curY = Math.random() > 0.5 ? 20 : height - 20;
+    const targetY = height / 2 + Math.sin(curX / 100) * 80;
+    
+    while (Math.abs(curY - targetY) > 15 && curX > 10 && curX < width - 10) {
+      path.push({x: curX, y: curY});
+      curY += curY < targetY ? 8 : -8;
+      curX += (Math.random() - 0.5) * 12 + (targetY - curY) * 0.02;
+    }
+    data.flowPaths.push(path);
+  }
+
+  const mainRiver = [];
+  for (let x = 10; x < width; x += 10) {
+    mainRiver.push({
+      x,
+      y: height / 2 + Math.sin(x / 100) * 80 + (Math.random() - 0.5) * 6
+    });
+  }
+  data.flowPaths.push(mainRiver);
+
+  // Vegetation (NDVI)
+  for (let y = 0; y < height; y += 10) {
+    const row = [];
+    for (let x = 0; x < width; x += 10) {
+      const riverDist = Math.abs(y - (height / 2 + Math.sin(x / 100) * 80));
+      let ndvi = 0.75 - (riverDist * 0.0008) + (Math.random() - 0.5) * 0.1;
+      
+      const dryPatchDist = Math.hypot(x - 150, y - 480);
+      if (dryPatchDist < 120) {
+        ndvi -= (120 - dryPatchDist) * 0.004;
+      }
+      row.push(Math.max(0.05, Math.min(0.95, ndvi)));
+    }
+    data.vegetation.push(row);
+  }
+
+  state.fieldData = data;
+}
+
+// Canvas tools helper hook binds
+document.getElementById('btnZoomIn').addEventListener('click', () => renderer.zoomIn());
+document.getElementById('btnZoomOut').addEventListener('click', () => renderer.zoomOut());
+document.getElementById('btnResetView').addEventListener('click', () => renderer.resetView());
+
+const layerContainer = document.getElementById('mapLayersContainer');
+layerContainer.addEventListener('click', (e) => {
+  if (e.target.classList.contains('layer-btn') && !e.target.disabled) {
+    document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    const layer = e.target.getAttribute('data-layer');
+    renderer.setLayer(layer);
+
+    const scale = document.getElementById('mapScaleIndicator');
+    if (layer === 'ml') {
+      scale.innerText = `Grid cells: ${state.gridSize}m x ${state.gridSize}m`;
+    } else {
+      scale.innerText = `Scale: 1px = 0.5m`;
+    }
+  }
+});
+
+// Start application
+window.addEventListener('DOMContentLoaded', init);
