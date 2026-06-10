@@ -65,3 +65,29 @@ The platform coordinates drone imagery and GIS data processing across ten sequen
 [1. Upload] ➜ [2. Quality Control] ➜ [3. Photogrammetry] ➜ [4. Error Correction] ➜ [5. DEM Validation]
                                                                                             |
 [10. AI Report] ➜ [9. GeoAI ML Layer] ➜ [8. Zonal Stats] ➜ [7. Vegetation Index] ➜ [6. GIS Terrain]
+
+## 🚀 Installation & Local Launch
+
+### Prerequisites
+* Python 3.10+ installed.
+* Exifread, OpenCV, Rasterio, GeoPandas, Scikit-learn, XGBoost libraries (installed automatically by the wrapper).
+* *(Optional)* Docker installed to run the OpenDroneMap photogrammetry engine. If not present, the backend automatically runs in a mock-fallback mode generating dummy rasters to allow testing.
+
+### Setup Steps
+1. Clone this repository to your local machine:
+   ```bash
+   git clone https://github.com/your-username/geoai-agri-platform.git
+   cd geoai-agri-platform
+   ```
+2. Run the bootstrapper script:
+   ```bash
+   python3 run_server.py
+   ```
+   *This script checks for a virtual environment (`venv`), creates it if missing, installs all dependencies from `requirements.txt`, and boots the server.*
+3. Open your browser and navigate to: **[http://localhost:8000](http://localhost:8000)**
+
+---
+
+## 📄 License
+Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
+
