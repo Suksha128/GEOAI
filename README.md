@@ -1,93 +1,138 @@
-# GeoAI Agricultural Decision-Support Platform 🌾
+# 🌾 GeoAI Agricultural Decision-Support Platform
+
+[![Streamlit App](https://static.streamlit.io/badge_github.svg)](https://share.streamlit.io/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
+[![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?style=flat&logo=python)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An automated, enterprise-grade cloud-and-offline hybrid drone photogrammetry mapping, GIS hydrology analysis, and machine learning crop diagnostics platform. Serves a premium, futuristic glassmorphic user interface concurrently via **Streamlit** (port 8501) and **FastAPI/Uvicorn** (port 8000).
 
 ---
 
-### 📢 Core Architecture Status
-
 > [!IMPORTANT]
-> The platform operates on a **Dual-Execution Core**:
-> * **Live API Mode (Port 8000)**: Binds to local REST routers to run ODM photogrammetry alignments, WhiteboxTools calculations, and local XGBoost models.
-> * **Offline Sandbox Mode (Port 8501)**: Implements client-side procedural layouts and animation loops, enabling immediate interaction without local server installations.
+> This platform runs in **Dual Mode**:
+> 1. **Live API Mode**: Connects to the local FastAPI backend (port 8000) to execute server-side photogrammetry and WhiteboxTools hydrology analysis.
+> 2. **Offline Sandbox Mode**: Runs entirely client-side inside the browser using procedural layout algorithms. Ideal for public Streamlit Cloud deployment or demoing without server dependencies.
 
 ---
 
-## ⚡ Core Pipeline Features
+## 🎨 System Architecture Overview
 
-### 1. High-Speed Concurrency Ingestion Queue
-Optimized to handle **25 GB datasets** (~10,000 files, 2–3 MB each). The frontend parses dropped directory structures recursively using the browser's Directory Entry API and uploads them via a concurrent worker queue (up to 32 parallel streams) using a rolling average speed (MB/s) and ETA estimator.
-
-### 2. Automated Quality Control
-Filters out poor data before running heavy computations:
-* **Blur Detection**: Computes the variance of the Laplacian ($\text{Var}(\nabla^2 I)$) of each image. Flags captures with variance $< 100$.
-* **Exposure Check**: Validates histogram pixel ratios to detect overexposed/underexposed flight frames.
-* **Flight Trajectory Match**: Parses GPS coordinates from EXIF tags and checks sequential distance changes to flag GPS dropout.
-
-### 3. Photogrammetry (OpenDroneMap Wrapper)
-Triggers OpenDroneMap via programmatical subprocesses. Automatically computes keypoint features (SIFT), camera calibration matrices, sparse/dense point clouds, Digital Surface Models (DSM), Digital Elevation Models (DEM), and Orthomosaics.
-
-### 4. Bundle Adjustment self-calibration correction
-Detects low tie-point cameras ($< 15$ ties) and high reprojection-error outliers ($> 1.5$ pixels). Automatically prunes outliers and re-runs bundle adjustment Ceres optimizations.
-
-### 5. DEM Validation (Hydrological Correction)
-Uncorrected DEMs contain artificial sinks and spikes that disrupt flow calculations. The engine uses the **Wang & Liu (2006)** depression breaching algorithm to ensure a hydrologically correct surface.
-
-### 6. Hydrological GIS Engine (WhiteboxTools Wrapper)
-Calculates slope gradients, aspect, curvature, D8 flow pointers, flow accumulation channels, and the **Topographic Wetness Index (TWI)**:
-$$\text{TWI} = \ln\left(\frac{\alpha}{\tan \beta}\right)$$
-where $\alpha$ is flow accumulation and $\beta$ is local slope.
-
-### 7. Vegetation Vigor Analysis
-Extracts Red and NIR bands to calculate **NDVI**. If NIR imagery is unavailable, it automatically falls back to the RGB-based **VARI (Visible Atmospherically Resistant Index)**:
-$$\text{VARI} = \frac{\text{Green} - \text{Red}}{\text{Green} + \text{Red} - \text{Blue}}$$
-
-### 8. Grid-Based Zonal Statistics
-Aggregates raster values (Elevation, Slope, TWI, NDVI) by intersecting them with configurable boundary polygons (e.g. 10m, 20m, 50m fishnet grid cells).
-
-### 9. Machine Learning Layer (XGBoost & Scikit-learn)
-Fuses binned zonal stats into tabular models:
-* **Waterlogging Risk**: XGBoost binary classifier (TWI + Slope).
-* **Soil Erosion Risk**: XGBoost binary classifier (Slope + NDVI + Curvature).
-* **Yield Potential**: RandomForest regressor (NDVI + TWI).
-*(Note: If pre-trained model files are missing, the system automatically trains a fresh set of models on a synthetic physics-based dataset on startup).*
-
-### 10. AI Agronomic Reporting
-Compiles statistics, ML risk hotspots, crop suitability (Corn/Soybeans/Rye), and confidence matrices into a beautifully formatted Jinja2 HTML brief.
+```mermaid
+graph TD
+    A[Drone Folders Dropzone] -->|Recursive Ingest| B[Uploader Module]
+    B -->|Concurrent Uploads| C[FastAPI Upload Router]
+    C -->|Stage 1: Save Raw JPGs| D[Storage Area]
+    D -->|Stage 2-4: SfM Mesh Stitches| E[ODM Photogrammetry]
+    E -->|Stage 5-6: DEM Calculations| F[WhiteboxTools GIS Engine]
+    F -->|Stage 7-8: Zonal stats| G[NDVI Vegetation Engine]
+    G -->|Stage 9: XGBoost classifier| H[GeoAI ML Models]
+    H -->|Stage 10: Jinja HTML briefs| I[AI Report Compiler]
+    I -->|Dynamic Bridge| J[Streamlit Dashboard / Port 8501]
+```
 
 ---
 
-## 🧬 Automated 10-Stage Pipeline
+## 🚀 Key Platform Features
 
-The platform coordinates drone imagery and GIS data processing across ten sequential stages. You can track progress visually on the dashboard:
+### 📡 High-Speed Folder Ingest
+* **Recursive Scanning**: Drag-and-drop raw parent folders (supports massive `20–25 GB` datasets) without selecting individual files.
+* **Auto-Batch Listing**: Automatically loops through filesystem directories to parse all `10,000+` images recursively, bypassing browser-specific listing limits.
+* **Parallel Worker Streams**: Concurrency slider allows `4 to 32` concurrent upload streams to maximize disk I/O write operations.
+* **Performance Telemetry**: Displays real-time upload speed (MB/s), active connections, uploaded volumes, and dynamic ETA counters.
+
+### 🗺️ GIS & ML Spatial Canvas Viewer
+An interactive HTML5 `<canvas>` engine with complete zoom, pan, and coordinate tracking:
+* **Flight Trajectory Overlay**: Plots coordinates of the drone path and checks images for exposure and blur (green circles for passed, red for QC warnings).
+* **High-Fidelity Orthomosaic**: Visualizes stitched crop rows, bare patches, and soil routes.
+* **DEM Elevation Grids**: Renders elevation indexes with dynamically calculated topography contours.
+* **Hydrological TWI Map**: Illustrates D8 flow channels, rivers, and water accumulation networks.
+* **NDVI Vegetation Index**: Computes and maps crop chlorophyll density levels.
+* **XGBoost Risk Matrix**: Color-codes and flags **Waterlogging** (Blue), **Erosion** (Red), and **Dry Patches** (Yellow) hazards.
+
+---
+
+## 📁 Repository Directory Structure
 
 ```text
-[1. Upload] ➜ [2. Quality Control] ➜ [3. Photogrammetry] ➜ [4. Error Correction] ➜ [5. DEM Validation]
-                                                                                            |
-[10. AI Report] ➜ [9. GeoAI ML Layer] ➜ [8. Zonal Stats] ➜ [7. Vegetation Index] ➜ [6. GIS Terrain]
-
-## 🚀 Installation & Local Launch
-
-### Prerequisites
-* Python 3.10+ installed.
-* Exifread, OpenCV, Rasterio, GeoPandas, Scikit-learn, XGBoost libraries (installed automatically by the wrapper).
-* *(Optional)* Docker installed to run the OpenDroneMap photogrammetry engine. If not present, the backend automatically runs in a mock-fallback mode generating dummy rasters to allow testing.
-
-### Setup Steps
-1. Clone this repository to your local machine:
-   ```bash
-   git clone https://github.com/your-username/geoai-agri-platform.git
-   cd geoai-agri-platform
-   ```
-2. Run the bootstrapper script:
-   ```bash
-   python3 run_server.py
-   ```
-   *This script checks for a virtual environment (`venv`), creates it if missing, installs all dependencies from `requirements.txt`, and boots the server.*
-3. Open your browser and navigate to: **[http://localhost:8000](http://localhost:8000)**
+GEOAI/
+├── app.py                     # Streamlit Wrapper (embeds and bundles frontend)
+├── index.html                 # Core glassmorphic HTML user interface layout
+├── css/
+│   └── styles.css             # Premium glassmorphic styling (glows, blur filters)
+├── js/                        # Client-side JavaScript modules
+│   ├── app.js                 # App coordinator, state, and FastAPI fetches
+│   ├── renderer.js            # HTML5 Canvas Spatial GIS drawer
+│   ├── uploader.js            # Concurrent directory tree parser
+│   └── reporter.js            # Jinja-style HTML report generator
+└── backend/
+    └── app/                   # FastAPI Python 3.13 backend
+        ├── main.py            # App router setup & static folder mounting
+        ├── config.py          # Central directory settings
+        ├── routers/           # API endpoints (upload, pipeline, models)
+        │   ├── upload.py      # Folder structures replication saver
+        │   ├── pipeline.py    # 10-stage processing coordinator
+        │   └── models.py      # Predictor queries endpoints
+        ├── services/          # Core processing engines
+        │   ├── quality_control.py   # Blur/exposure validation
+        │   ├── photogrammetry.py    # ODM stitching routines
+        │   ├── gis_engine.py        # WhiteboxTools terrain indexes
+        │   ├── vegetation.py        # NDVI/VARI calculations
+        │   └── zonal_stats.py       # Metrics aggregator
+        └── ml/
+            └── ml_models.py   # XGBoost multi-risk classifier
+```
 
 ---
 
-## 📄 License
-Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
+## 🛠️ Local Installation & Run Guide
 
+### 1. Initialize Your Local Environment
+The project expects a Python 3.13 environment. Since the environment is located in your Downloads folder, activate it and install dependencies:
+```bash
+# Move into the project directory
+cd /Users/sukshas/Downloads/GEOAI
+
+# Activate the virtual environment from Downloads
+source ../venv/bin/activate
+
+# Install all backend and frontend Streamlit dependencies
+pip install -r backend/requirements.txt
+```
+
+### 2. Start the FastAPI Backend Server (Port 8000)
+The backend manages data ingestion, coordinate merges, and executes the WhiteboxTools and XGBoost ML routers:
+```bash
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+* **Interactive API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI)
+
+### 3. Launch the Streamlit Frontend Site (Port 8501)
+Open a new terminal window, activate the virtual environment, and start Streamlit:
+```bash
+# Activate the environment
+source ../venv/bin/activate
+
+# Launch the website
+streamlit run app.py
+```
+* **Dashboard URL**: [http://localhost:8501](http://localhost:8501)
+
+---
+
+## ☁️ Deployment Configurations
+
+This repository is optimized for deployment on **Streamlit Community Cloud**:
+
+> [!TIP]
+> **Pushing to Git**:
+> 1. Ensure `venv/`, `backend/storage/` (uploads cache), and `__pycache__/` are added to `.gitignore` to prevent bloating the repo with gigabytes of binary data.
+> 2. Force push the clean branch to your remote GitHub:
+>    ```bash
+>    git add .
+>    git commit -m "Initial Deploy Commit"
+>    git push -f origin main
+>    ```
+
+> [!NOTE]
+> When hosted publicly, the Streamlit app automatically runs in **Offline Sandbox Mode**, allowing users to experience the full interactive 10-stage photogrammetry flight path and ML grid risk simulation right in their browser without requiring a backend GPU server.
