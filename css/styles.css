@@ -1,34 +1,34 @@
 /* Root Design Tokens */
 :root {
-  --bg-primary: #18110b;
-  --bg-secondary: #221811;
-  --panel-bg: rgba(38, 28, 20, 0.7);
-  --panel-border: rgba(211, 124, 90, 0.12);
-  --panel-border-glow: rgba(229, 169, 59, 0.3);
+  --bg-primary: #f6f1e5;
+  --bg-secondary: #ede6d6;
+  --panel-bg: rgba(253, 250, 242, 0.8);
+  --panel-border: rgba(185, 28, 28, 0.08);
+  --panel-border-glow: rgba(185, 28, 28, 0.3);
   
   /* Color Palette */
-  --text-main: #fdfbf7;
-  --text-muted: #bdae9c;
-  --color-azure: #e5a93b;
+  --text-main: #2e251b;
+  --text-muted: #706556;
+  --color-azure: #b91c1c;
   --color-emerald: #2e7d32;
-  --color-amber: #f97316;
+  --color-amber: #d97706;
   --color-crimson: #b91c1c;
   --color-indigo: #b85d43;
 
   /* Gradients */
-  --gradient-primary: linear-gradient(135deg, #e5a93b, #b85d43);
-  --gradient-success: linear-gradient(135deg, #2e7d32, #a3e635);
-  --gradient-dark: linear-gradient(180deg, #221811 0%, #130a06 100%);
-  --gradient-glow: radial-gradient(circle at center, rgba(229, 169, 59, 0.12) 0%, transparent 70%);
+  --gradient-primary: linear-gradient(135deg, #b91c1c, #d97706);
+  --gradient-success: linear-gradient(135deg, #2e7d32, #65a30d);
+  --gradient-dark: linear-gradient(180deg, #f6f1e5 0%, #ede6d6 100%);
+  --gradient-glow: radial-gradient(circle at center, rgba(185, 28, 28, 0.08) 0%, transparent 70%);
 
   /* Typography */
   --font-family-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-family-mono: 'JetBrains Mono', monospace;
 
   /* Box Shadows */
-  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
-  --shadow-glow: 0 0 20px rgba(229, 169, 59, 0.12);
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 25px -5px rgba(46, 37, 27, 0.1), 0 8px 10px -6px rgba(46, 37, 27, 0.1);
+  --shadow-glow: 0 0 20px rgba(185, 28, 28, 0.1);
 }
 
 /* Base Reset & Layout */
@@ -63,14 +63,14 @@ body {
   right: -100px;
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, rgba(229, 169, 59, 0.2) 0%, rgba(184, 93, 67, 0.05) 70%);
+  background: radial-gradient(circle, rgba(185, 28, 28, 0.08) 0%, rgba(229, 169, 59, 0.02) 70%);
 }
 .orb-2 {
   bottom: 10%;
   left: -200px;
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(46, 125, 50, 0.12) 0%, rgba(229, 169, 59, 0.02) 70%);
+  background: radial-gradient(circle, rgba(46, 125, 50, 0.06) 0%, rgba(185, 28, 28, 0.01) 70%);
 }
 
 .app-container {
@@ -1080,7 +1080,7 @@ input[type="range"] {
   background: var(--gradient-primary);
   border: 1px solid rgba(255, 255, 255, 0.2);
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(0, 162, 255, 0.4);
+  box-shadow: 0 4px 20px rgba(185, 28, 28, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1090,7 +1090,7 @@ input[type="range"] {
 
 .chat-trigger-btn:hover {
   transform: scale(1.1);
-  box-shadow: 0 6px 25px rgba(0, 162, 255, 0.6), 0 0 15px rgba(0, 198, 255, 0.4);
+  box-shadow: 0 6px 25px rgba(185, 28, 28, 0.6), 0 0 15px rgba(185, 28, 28, 0.3);
 }
 
 .chat-trigger-btn:active {
@@ -1107,7 +1107,7 @@ input[type="range"] {
   right: 2rem;
   width: 380px;
   height: 520px;
-  background: rgba(11, 18, 36, 0.85);
+  background: rgba(253, 250, 242, 0.9);
   border: 1px solid var(--panel-border);
   border-radius: 16px;
   backdrop-filter: blur(20px);
@@ -1222,13 +1222,13 @@ input[type="range"] {
   background: var(--gradient-primary);
   color: white;
   border-bottom-right-radius: 2px;
-  box-shadow: 0 4px 10px rgba(0, 114, 255, 0.2);
+  box-shadow: 0 4px 10px rgba(185, 28, 28, 0.2);
 }
 
 .chat-bubble.assistant {
   align-self: flex-start;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   color: var(--text-main);
   border-bottom-left-radius: 2px;
 }
@@ -1240,7 +1240,7 @@ input[type="range"] {
   margin-top: 0.4rem;
   font-family: var(--font-family-mono);
   text-align: right;
-  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  border-top: 1px solid rgba(0, 0, 0, 0.03);
   padding-top: 0.25rem;
 }
 
@@ -1270,8 +1270,8 @@ input[type="range"] {
   display: flex;
   gap: 4px;
   padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 12px;
   align-self: flex-start;
   width: fit-content;
@@ -1300,7 +1300,7 @@ input[type="range"] {
   padding: 0.5rem 1rem;
   overflow-x: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .chat-chips-container::-webkit-scrollbar {
@@ -1309,8 +1309,8 @@ input[type="range"] {
 
 .chat-chip {
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   color: var(--text-muted);
   padding: 0.35rem 0.75rem;
   border-radius: 50px;
@@ -1321,15 +1321,15 @@ input[type="range"] {
 }
 
 .chat-chip:hover {
-  background: rgba(0, 162, 255, 0.1);
-  border-color: rgba(0, 162, 255, 0.3);
+  background: rgba(185, 28, 28, 0.06);
+  border-color: rgba(185, 28, 28, 0.3);
   color: var(--color-azure);
 }
 
 /* Input Panel */
 .chat-input-panel {
   padding: 0.85rem 1rem;
-  background: rgba(11, 18, 36, 0.95);
+  background: rgba(237, 230, 214, 0.95);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   gap: 0.75rem;
@@ -1338,8 +1338,8 @@ input[type="range"] {
 
 .chat-input-panel input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   color: var(--text-main);
   padding: 0.6rem 0.85rem;
   border-radius: 8px;
@@ -1350,7 +1350,7 @@ input[type="range"] {
 
 .chat-input-panel input:focus {
   border-color: var(--color-azure);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .chat-send-btn {
@@ -1365,7 +1365,7 @@ input[type="range"] {
   justify-content: center;
   cursor: pointer;
   transition: opacity 0.2s, transform 0.1s;
-  box-shadow: 0 2px 8px rgba(0, 162, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(185, 28, 28, 0.3);
   flex-shrink: 0;
 }
 
