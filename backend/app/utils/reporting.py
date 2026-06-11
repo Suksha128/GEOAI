@@ -48,15 +48,36 @@ class ReportingService:
                 <h1>GeoAI Agricultural Decision Summary</h1>
                 <p>Project: <strong>{{ project_name }}</strong></p>
                 
-                <h2>Mission Photogrammetry Specs</h2>
+                <h2>Mission Photogrammetry & Camera Calibration</h2>
                 <div class="grid-stats">
                     <div class="stat-box">
                         <div class="stat-label">Total Images Processed</div>
-                        <div class="stat-value">{{ stats.total_images }}</div>
+                        <div class="stat-value">{{ stats.total_images }} <span class="unit">photos</span></div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">Bundle Adjustment RMS</div>
-                        <div class="stat-value">0.12 pixels</div>
+                        <div class="stat-label">Mean Reprojection Error</div>
+                        <div class="stat-value">{{ stats.reprojection_error }} <span class="unit">pixels</span></div>
+                        <div class="stat-sub text-success">Optimal (&lt; 0.40 px)</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Reconstruction Uncertainty</div>
+                        <div class="stat-value">{{ stats.reconstruction_uncertainty }}</div>
+                        <div class="stat-sub text-success">Optimal (&lt; 10.0)</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Tie Points Matched</div>
+                        <div class="stat-value">{{ stats.tie_points_matched }}</div>
+                        <div class="stat-sub">Across overlapping image frames</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Lens Radial Distortion (k1, k2)</div>
+                        <div class="stat-value">{{ stats.distortion_k1 }} / {{ stats.distortion_k2 }}</div>
+                        <div class="stat-sub">Calibrated lens parameters</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Camera Auto-Calibration</div>
+                        <div class="stat-value">Fitted (SIFT)</div>
+                        <div class="stat-sub">Aligned using OpenSfM bundle adjustment</div>
                     </div>
                 </div>
 

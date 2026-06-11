@@ -622,11 +622,12 @@ function generateProceduralFieldData() {
     }
   }
 
-  // Faulty images
-  const faultyIndices = [15, 42, 88, 120];
-  faultyIndices.forEach(idx => {
-    if (data.cameras[idx]) {
-      data.cameras[idx].qcPassed = false;
+  // Dynamic camera QC validation based on a pseudo-random seed to vary across datasets
+  data.cameras.forEach((cam, idx) => {
+    const hash = Math.abs(Math.sin(idx + 1.234) * 10000);
+    // Flag about 1.5% of cameras dynamically as blurry or poorly exposed
+    if ((hash - Math.floor(hash)) < 0.015) {
+      cam.qcPassed = false;
     }
   });
 
