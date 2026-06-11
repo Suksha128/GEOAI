@@ -21,6 +21,7 @@ const state = {
   vegIndexMode: 'auto',
   errorCorrectionEnabled: true,
   sinkFillingEnabled: true,
+  soilData: null,
 };
 
 // UI Elements
@@ -121,8 +122,8 @@ function init() {
       updateSystemStatus('Upload Ready - Awaiting Trigger', 'pulse-green');
       resetPipelineUI();
       
-      // Regenerate procedural simulation data to match the actual file count!
-      generateProceduralFieldData(meta.filesCount);
+      // Look for a soil report file and parse it!
+      checkAndParseSoilReport(uploader.files);
       
       renderer.setFieldData(state.fieldData);
       renderer.setPipelineStep(0);
@@ -140,6 +141,9 @@ function init() {
 
   // 5. Initialize Chatbot
   initChatbot();
+
+  // 6. Trigger welcome Namaste gesture shower animation
+  triggerNamasteShower();
 }
 
 function initUIEvents() {
@@ -249,14 +253,6 @@ function pollLivePipelineStatus() {
       const stepIdx = data.step;
       const pipelineStatus = data.status;
       const message = data.message;
-      
-      // Update field coordinates with real flight data if returned by the backend
-      if (data.cameras && data.cameras.length > 0 && (!state.fieldData || state.fieldData.cameras.length !== data.cameras.length)) {
-        const mappedData = convertGpsToLocalCoordinates(data.cameras);
-        generateProceduralMapsForRealCameras(mappedData);
-        state.fieldData = mappedData;
-        renderer.setFieldData(state.fieldData);
-      }
       
       // Update UI Header Status
       updateSystemStatus(`[Live Backend] ${message}`, pipelineStatus === 'failed' ? 'pulse-red' : 'pulse-orange');
@@ -450,7 +446,8 @@ function triggerReportRecompile() {
     totalFiles: totalCount,
     flaggedFiles: failedCount,
     gridSize: state.gridSize,
-    vegIndexMode: state.vegIndexMode
+    vegIndexMode: state.vegIndexMode,
+    soilData: state.soilData
   });
   reportContent.innerHTML = html;
 }
@@ -475,14 +472,6 @@ function updateSystemStatus(text, pulseClass) {
   }
 }
 
-function enableLayer(layerName) {
-  const btn = document.querySelector(`.layer-btn[data-layer="${layerName}"]`);
-  if (btn) {
-    btn.removeAttribute('disabled');
-  }
-}
-
-
 function resetUploadUI() {
   statsFilesCount.innerText = '0 / 0';
   statsFolderCount.innerText = '0 folders parsed';
@@ -497,6 +486,7 @@ function resetUploadUI() {
   resetUploadBtn.disabled = true;
   if (concurrencySlider) concurrencySlider.disabled = false;
   folderInput.value = '';
+  state.soilData = null;
 
   updateSystemStatus('System Ready - Idle', 'pulse-green');
 }
@@ -529,7 +519,7 @@ function resetPipelineUI() {
 }
 
 // Procedural Field DB Generator (Same as old layout)
-function generateProceduralFieldData(numFiles) {
+function generateProceduralFieldData() {
   const width = 800;
   const height = 600;
   const data = {
@@ -542,12 +532,8 @@ function generateProceduralFieldData(numFiles) {
     grids: {}
   };
 
-  // Determine grid based on number of files (cap at 400 nodes to avoid browser lag, but reflect density)
-  const count = numFiles ? Math.min(400, numFiles) : 192;
-  const ratio = 4 / 3;
-  const rows = Math.max(2, Math.round(Math.sqrt(count / ratio)));
-  const cols = Math.max(2, Math.round(rows * ratio));
-
+  const rows = 12;
+  const cols = 16;
   const rowSpacing = height / (rows + 1);
   const colSpacing = width / (cols + 1);
 
@@ -574,13 +560,11 @@ function generateProceduralFieldData(numFiles) {
     }
   }
 
-  // Generate dynamic, hash-based randomized QC status for camera nodes so it is different for every dataset size!
-  data.cameras.forEach(cam => {
-    // Generate simple hash from id and coordinates
-    const hash = Math.abs(Math.sin(cam.id) * 10000);
-    // Flag about 2.5% of cameras as blurry/faulty
-    if ((hash - Math.floor(hash)) < 0.025) {
-      cam.qcPassed = false;
+  // Faulty images
+  const faultyIndices = [15, 42, 88, 120];
+  faultyIndices.forEach(idx => {
+    if (data.cameras[idx]) {
+      data.cameras[idx].qcPassed = false;
     }
   });
 
@@ -637,125 +621,6 @@ function generateProceduralFieldData(numFiles) {
   }
 
   state.fieldData = data;
-}
-
-function convertGpsToLocalCoordinates(cameras) {
-  if (!cameras || cameras.length === 0) return { width: 800, height: 600, cameras: [] };
-
-  let minLat = Infinity, maxLat = -Infinity;
-  let minLon = Infinity, maxLon = -Infinity;
-
-  cameras.forEach(cam => {
-    const lat = cam.lat;
-    const lon = cam.lon;
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lon < minLon) minLon = lon;
-    if (lon > maxLon) maxLon = lon;
-  });
-
-  const latSpan = maxLat - minLat;
-  const lonSpan = maxLon - minLon;
-
-  const width = 800;
-  const height = 600;
-
-  const localCameras = cameras.map((cam, idx) => {
-    const lat = cam.lat;
-    const lon = cam.lon;
-    
-    // Normalize and scale to canvas bounds with margins
-    const x = lonSpan > 0 ? ((lon - minLon) / lonSpan) * (width - 160) + 80 : width / 2;
-    const y = latSpan > 0 ? (1 - (lat - minLat) / latSpan) * (height - 160) + 80 : height / 2;
-
-    return {
-      id: cam.id,
-      x: x,
-      y: y,
-      z: cam.alt || 80.0,
-      filename: cam.filename,
-      qcPassed: cam.qcPassed
-    };
-  });
-
-  return {
-    width,
-    height,
-    cameras: localCameras,
-    minLat,
-    maxLat,
-    minLon,
-    maxLon
-  };
-}
-
-function generateProceduralMapsForRealCameras(mappedData) {
-  const width = mappedData.width;
-  const height = mappedData.height;
-  
-  // Calculate centroid of the actual coordinates to center features
-  let avgX = 0, avgY = 0;
-  mappedData.cameras.forEach(cam => {
-    avgX += cam.x;
-    avgY += cam.y;
-  });
-  avgX /= mappedData.cameras.length;
-  avgY /= mappedData.cameras.length;
-
-  // 1. Elevation matrix
-  mappedData.elevation = [];
-  for (let y = 0; y < height; y += 4) {
-    const row = [];
-    for (let x = 0; x < width; x += 4) {
-      const valley = Math.abs(y - (avgY + Math.sin(x / 100) * 80)) * 0.3;
-      const distToHill = Math.hypot(x - (avgX + 150), y - (avgY - 100));
-      const hill = Math.max(0, 150 - distToHill * 0.4);
-      row.push(150 + valley + hill + (Math.random() - 0.5) * 2);
-    }
-    mappedData.elevation.push(row);
-  }
-
-  // 2. Flow channels
-  mappedData.flowPaths = [];
-  for (let x = 20; x < width; x += 60) {
-    const path = [];
-    let curX = x;
-    let curY = Math.random() > 0.5 ? 20 : height - 20;
-    const targetY = avgY + Math.sin(curX / 100) * 80;
-    
-    while (Math.abs(curY - targetY) > 15 && curX > 10 && curX < width - 10) {
-      path.push({x: curX, y: curY});
-      curY += curY < targetY ? 8 : -8;
-      curX += (Math.random() - 0.5) * 12 + (targetY - curY) * 0.02;
-    }
-    mappedData.flowPaths.push(path);
-  }
-
-  const mainRiver = [];
-  for (let x = 10; x < width; x += 10) {
-    mainRiver.push({
-      x,
-      y: avgY + Math.sin(x / 100) * 80 + (Math.random() - 0.5) * 6
-    });
-  }
-  mappedData.flowPaths.push(mainRiver);
-
-  // 3. Vegetation (NDVI)
-  mappedData.vegetation = [];
-  for (let y = 0; y < height; y += 10) {
-    const row = [];
-    for (let x = 0; x < width; x += 10) {
-      const riverDist = Math.abs(y - (avgY + Math.sin(x / 100) * 80));
-      let ndvi = 0.75 - (riverDist * 0.0008) + (Math.random() - 0.5) * 0.1;
-      
-      const dryPatchDist = Math.hypot(x - (avgX - 150), y - (avgY + 120));
-      if (dryPatchDist < 120) {
-        ndvi -= (120 - dryPatchDist) * 0.004;
-      }
-      row.push(Math.max(0.05, Math.min(0.95, ndvi)));
-    }
-    mappedData.vegetation.push(row);
-  }
 }
 
 // Canvas tools helper hook binds
@@ -943,6 +808,92 @@ function initChatbot() {
       return "**Yield Optimization Advice:**\n\n1. **Variable Rate Nitrogen:** Apply fertilizer based on NDVI vigor maps (low NDVI zones need targeted nitrogen boosts).\n2. **pH Management:** Target lime applications to neutralize acidic soil patches detected in zones under 6.0 pH.\n3. **Rotational Sowing:** Rotate cereals with legumes (e.g. Peas, Beans) to naturally fix soil nitrogen levels.";
     } else {
       return "Hello! I am your GeoAI Agri-Assistant. Ask me about:\n\n* **Waterlogging mitigation** and surface drainage design.\n* **Soil erosion controls** on sloped terrain.\n* **NDVI crop vigor** and targeted fertilizer application.";
+    }
+  }
+}
+
+// ── Greeting Shower Animation ─────────────────────────────────────
+function triggerNamasteShower() {
+  const container = document.body;
+  const emojiCount = 40;
+  const emojis = ['🙏', '🌻', '🌸', '🍂', '🍃', '🌾']; 
+  
+  for (let i = 0; i < emojiCount; i++) {
+    const el = document.createElement('div');
+    el.className = 'falling-emoji';
+    el.innerText = emojis[Math.floor(Math.random() * emojis.length)];
+    
+    const leftPos = Math.random() * 100; // 0 to 100vw
+    const delay = Math.random() * 2;   // staggered delay
+    const duration = 4 + Math.random() * 2; // varying speeds
+    const size = 20 + Math.random() * 22; // varying sizes
+    const rotation = Math.random() * 360;  // initial rotation
+    
+    el.style.left = `${leftPos}vw`;
+    el.style.animationDelay = `${delay}s`;
+    el.style.animationDuration = `${duration}s`;
+    el.style.fontSize = `${size}px`;
+    el.style.transform = `rotate(${rotation}deg)`;
+    
+    container.appendChild(el);
+    
+    // Clean up element after animation is done
+    setTimeout(() => {
+      el.remove();
+    }, (delay + duration) * 1000 + 100);
+  }
+}
+
+// ── Soil Lab Report CSV Parser ────────────────────────────────────────────
+function checkAndParseSoilReport(files) {
+  state.soilData = null; // reset
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const nameLower = file.name.toLowerCase();
+    if ((nameLower.includes("soil") || nameLower.includes("report")) && nameLower.endsWith(".csv")) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target.result;
+        const lines = text.split('\n');
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+          const phIdx = headers.findIndex(h => h.includes('ph'));
+          const nIdx = headers.findIndex(h => h.includes('nitrogen') || h === 'n');
+          const clayIdx = headers.findIndex(h => h.includes('clay'));
+          
+          let phSum = 0, phCount = 0;
+          let nSum = 0, nCount = 0;
+          let claySum = 0, clayCount = 0;
+          
+          for (let rowIdx = 1; rowIdx < lines.length; rowIdx++) {
+            const cols = lines[rowIdx].split(',').map(c => c.trim());
+            if (cols.length > Math.max(phIdx, nIdx, clayIdx)) {
+              if (phIdx !== -1 && cols[phIdx]) {
+                const val = parseFloat(cols[phIdx]);
+                if (!isNaN(val)) { phSum += val; phCount++; }
+              }
+              if (nIdx !== -1 && cols[nIdx]) {
+                const val = parseFloat(cols[nIdx]);
+                if (!isNaN(val)) { nSum += val; nCount++; }
+              }
+              if (clayIdx !== -1 && cols[clayIdx]) {
+                const val = parseFloat(cols[clayIdx]);
+                if (!isNaN(val)) { claySum += val; clayCount++; }
+              }
+            }
+          }
+          state.soilData = {
+            ph: phCount > 0 ? (phSum / phCount).toFixed(2) : null,
+            nitrogen: nCount > 0 ? (nSum / nCount).toFixed(1) : null,
+            clay_pct: clayCount > 0 ? (claySum / clayCount).toFixed(1) : null,
+            filename: file.name
+          };
+          console.log("[GeoAI Platform] Parsed Soil Report: ", state.soilData);
+        }
+      };
+      // Read either raw HTML File object or custom wrapper
+      reader.readAsText(file.rawFile || file);
+      break;
     }
   }
 }

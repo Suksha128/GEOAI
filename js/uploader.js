@@ -30,14 +30,14 @@ export class IngestionManager {
    */
   parseFileList(fileList) {
     this.reset();
-    const validImageExts = ['.jpg', '.jpeg', '.png', '.tif', '.tiff'];
+    const validFileExts = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.csv', '.json'];
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       const nameLower = file.name.toLowerCase();
-      const isValidImage = validImageExts.some(ext => nameLower.endsWith(ext));
+      const isValidFile = validFileExts.some(ext => nameLower.endsWith(ext));
       
-      if (isValidImage) {
+      if (isValidFile) {
         const pathParts = (file.webkitRelativePath || file.name).split('/');
         const folderName = pathParts.length > 1 ? pathParts[pathParts.length - 2] : 'root';
         this.folders.add(folderName);

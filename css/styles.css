@@ -1,24 +1,25 @@
 /* Root Design Tokens */
 :root {
-  --bg-primary: #f6f1e5;
-  --bg-secondary: #ede6d6;
-  --panel-bg: rgba(253, 250, 242, 0.8);
-  --panel-border: rgba(185, 28, 28, 0.08);
-  --panel-border-glow: rgba(185, 28, 28, 0.3);
+  --bg-primary: #D2B48C;
+  --bg-secondary: #c0a178;
+  --panel-bg: rgba(240, 238, 233, 0.9);
+  --panel-border: rgba(46, 37, 27, 0.12);
+  --panel-border-glow: rgba(185, 28, 28, 0.4);
   
   /* Color Palette */
   --text-main: #2e251b;
-  --text-muted: #706556;
+  --text-muted: #6e6152;
   --color-azure: #b91c1c;
   --color-emerald: #2e7d32;
   --color-amber: #d97706;
   --color-crimson: #b91c1c;
   --color-indigo: #b85d43;
+  --color-click-highlight: #ff3b30; /* Bright poppy red for click highlights */
 
   /* Gradients */
   --gradient-primary: linear-gradient(135deg, #b91c1c, #d97706);
   --gradient-success: linear-gradient(135deg, #2e7d32, #65a30d);
-  --gradient-dark: linear-gradient(180deg, #f6f1e5 0%, #ede6d6 100%);
+  --gradient-dark: linear-gradient(180deg, #D2B48C 0%, #b8976c 100%);
   --gradient-glow: radial-gradient(circle at center, rgba(185, 28, 28, 0.08) 0%, transparent 70%);
 
   /* Typography */
@@ -28,7 +29,7 @@
   /* Box Shadows */
   --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
   --shadow-lg: 0 10px 25px -5px rgba(46, 37, 27, 0.1), 0 8px 10px -6px rgba(46, 37, 27, 0.1);
-  --shadow-glow: 0 0 20px rgba(185, 28, 28, 0.1);
+  --shadow-glow: 0 0 20px rgba(185, 28, 28, 0.15);
 }
 
 /* Base Reset & Layout */
@@ -1078,7 +1079,7 @@ input[type="range"] {
   height: 58px;
   border-radius: 50%;
   background: var(--gradient-primary);
-  border: 2.5px solid #f6f1e5;
+  border: 2.5px solid rgba(240, 238, 233, 0.95);
   cursor: pointer;
   box-shadow: 0 4px 20px rgba(185, 28, 28, 0.35);
   display: flex;
@@ -1428,5 +1429,62 @@ input[type="range"] {
   .chat-trigger-btn {
     right: 1rem;
     bottom: 1rem;
+  }
+}
+
+/* ── Interactive Click Highlights ────────────────────────────────────────── */
+.primary-btn:active:not(:disabled),
+.secondary-btn:active:not(:disabled),
+.layer-btn:active:not(:disabled),
+.map-tool-btn:active,
+.chat-trigger-btn:active,
+.chat-send-btn:active,
+.chat-chip:active {
+  background: var(--color-click-highlight) !important;
+  border-color: var(--color-click-highlight) !important;
+  box-shadow: 0 0 15px var(--color-click-highlight), 0 0 25px rgba(255, 59, 48, 0.4) !important;
+  color: #fff !important;
+  transform: scale(0.94) !important;
+  transition: transform 0.05s ease, background 0.05s ease !important;
+}
+
+.styled-select:focus,
+.styled-select:active {
+  border-color: var(--color-click-highlight) !important;
+  box-shadow: 0 0 10px rgba(255, 59, 48, 0.45) !important;
+}
+
+.toggle-switch input:checked + .slider {
+  background-color: var(--color-click-highlight) !important;
+  box-shadow: 0 0 10px rgba(255, 59, 48, 0.5) !important;
+}
+
+/* ── Falling Emoji Animation ─────────────────────────────────────── */
+.falling-emoji {
+  position: fixed;
+  top: -80px;
+  z-index: 100000;
+  pointer-events: none;
+  user-select: none;
+  animation: spiral-fall 8s linear forwards;
+}
+
+@keyframes spiral-fall {
+  0% {
+    transform: translate(0px, 0px) rotate(0deg);
+    opacity: 1;
+  }
+  10% { transform: translate(40px, 10vh) rotate(180deg); }
+  20% { transform: translate(-40px, 20vh) rotate(360deg); }
+  30% { transform: translate(40px, 30vh) rotate(540deg); }
+  40% { transform: translate(-40px, 40vh) rotate(720deg); }
+  50% { transform: translate(40px, 50vh) rotate(900deg); }
+  60% { transform: translate(-40px, 60vh) rotate(1080deg); }
+  70% { transform: translate(40px, 70vh) rotate(1080deg); }
+  80% { transform: translate(-40px, 80vh) rotate(1080deg); }
+  90% { transform: translate(40px, 90vh) rotate(1080deg); }
+  100% {
+    transform: translate(-40px, 110vh) rotate(1800deg);
+    opacity: 0;
   }
 }

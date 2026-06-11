@@ -1,6 +1,8 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pathlib import Path
 import time
+import csv
+import asyncio
 from ..config import settings
 from ..services.quality_control import QualityControlService
 from ..services.photogrammetry import PhotogrammetryService
@@ -14,6 +16,36 @@ router = APIRouter(prefix="/api/pipeline", tags=["Pipeline"])
 
 # In-memory pipeline task coordinator status dictionary
 active_pipelines = {}
+
+def parse_soil_file(file_path: Path) -> dict:
+    try:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            headers = [h.lower() for h in reader.fieldnames or []]
+            ph_col = next((h for h in reader.fieldnames if h.lower() in ["ph", "soil_ph"]), None)
+            n_col = next((h for h in reader.fieldnames if h.lower() in ["nitrogen", "n", "total_n", "nitrogen_kg_ha"]), None)
+            clay_col = next((h for h in reader.fieldnames if h.lower() in ["clay", "clay_pct", "clay_percentage"]), None)
+            
+            phs, ns, clays = [], [], []
+            for row in reader:
+                if ph_col and row.get(ph_col) is not None:
+                    try: phs.append(float(row[ph_col]))
+                    except ValueError: pass
+                if n_col and row.get(n_col) is not None:
+                    try: ns.append(float(row[n_col]))
+                    except ValueError: pass
+                if clay_col and row.get(clay_col) is not None:
+                    try: clays.append(float(row[clay_col]))
+                    except ValueError: pass
+            
+            res = {}
+            if phs: res["ph"] = round(sum(phs) / len(phs), 2)
+            if ns: res["nitrogen"] = round(sum(ns) / len(ns), 1)
+            if clays: res["clay_pct"] = round(sum(clays) / len(clays), 1)
+            return res
+    except Exception as e:
+        print(f"Error parsing soil file: {e}")
+        return {}
 
 def execute_geoai_pipeline(project_id: str):
     """Orchestrates the 10-stage agricultural analysis pipeline asynchronously."""
@@ -30,32 +62,18 @@ def execute_geoai_pipeline(project_id: str):
         images = list(upload_dir.glob("**/*"))
         images = [img for img in images if img.is_file() and img.suffix.lower() in ['.jpg', '.jpeg', '.png', '.tif']]
         
-        from concurrent.futures import ThreadPoolExecutor
-        
-        # Performance optimization: if there are more than 100 images, run in fast EXIF-only mode
-        # for images past index 100 to avoid CPU thrashing on gigabyte datasets during testing.
-        def process_image(index_and_path):
-            idx, img_path = index_and_path
-            return qc.run_qc(img_path, fast_mode=(idx >= 100))
-            
         qc_results = []
-        with ThreadPoolExecutor(max_workers=16) as executor:
-            qc_results = list(executor.map(process_image, enumerate(images)))
-            
+        for img in images:
+            qc_results.append(qc.run_qc(img))
         passed_cams = [r for r in qc_results if r["passed"]]
         
-        # Save parsed camera coordinates in status for the frontend
-        status["cameras"] = [
-            {
-                "id": idx,
-                "lat": r["coordinates"]["lat"],
-                "lon": r["coordinates"]["lon"],
-                "alt": r["coordinates"]["alt"],
-                "filename": r["filename"],
-                "qcPassed": r["passed"]
-            }
-            for idx, r in enumerate(qc_results)
-        ]
+        # Get coordinates for weather API (from first valid camera)
+        lat = settings.default_lat
+        lon = settings.default_lon
+        if passed_cams:
+            lat = passed_cams[0]["coordinates"]["lat"]
+            lon = passed_cams[0]["coordinates"]["lon"]
+            
         time.sleep(1.5) # Simulate processing delay
         
         # Step 3: Photogrammetry (ODM)
@@ -112,13 +130,52 @@ def execute_geoai_pipeline(project_id: str):
         erosion_pct = int(sum(1 for c in predicted_grids if c["erosion_risk"] > 0.6) / len(predicted_grids) * 100) if predicted_grids else 8
         optimal_pct = int(sum(1 for c in predicted_grids if c["yield_potential"] > 6.0) / len(predicted_grids) * 100) if predicted_grids else 80
         
+        # Parse soil report from project upload dir
+        soil_data = {}
+        for f in upload_dir.glob("**/*"):
+            if f.is_file() and ("soil" in f.name.lower() or "report" in f.name.lower()) and f.suffix.lower() == '.csv':
+                parsed = parse_soil_file(f)
+                if parsed:
+                    soil_data.update(parsed)
+                    soil_data["filename"] = f.name
+                    break
+        
+        # Fetch weather station summary (1-year historical archive) and 7-day forecast
+        from ..utils.weather_client import WeatherClient
+        weather = WeatherClient()
+        weather_summary = {}
+        forecast_7d = []
+        try:
+            weather_summary = asyncio.run(weather.get_farm_summary(lat, lon, years=1))
+            forecast_7d = asyncio.run(weather.get_forecast_7day(lat, lon))
+        except Exception as we:
+            print(f"Error fetching weather summary: {we}")
+            
         report_stats = {
             "total_images": len(images),
             "max_elevation": f"{max_el:.1f}",
             "min_elevation": f"{min_el:.1f}",
             "waterlogging_pct": water_pct,
             "erosion_pct": erosion_pct,
-            "optimal_pct": optimal_pct
+            "optimal_pct": optimal_pct,
+            
+            # Weather details
+            "weather_source": weather_summary.get("weather_source", "simulated"),
+            "annual_rainfall": weather_summary.get("annual_rain_mm", 1180.0),
+            "temp_avg": weather_summary.get("temp_avg", 29.5),
+            "kharif_rainfall": weather_summary.get("kharif_rain_mm", 820.0),
+            "rabi_rainfall": weather_summary.get("rabi_rain_mm", 210.0),
+            "gdd_season": weather_summary.get("gdd_season", 1850.0),
+            
+            # Weather 7d forecast list
+            "forecast": forecast_7d,
+            
+            # Soil parameters
+            "has_soil_report": bool(soil_data),
+            "soil_filename": soil_data.get("filename", ""),
+            "soil_ph": soil_data.get("ph", "N/A"),
+            "soil_nitrogen": soil_data.get("nitrogen", "N/A"),
+            "soil_clay": soil_data.get("clay_pct", "N/A")
         }
         
         report_path = project_dir / "reports" / "report.html"
@@ -148,7 +205,6 @@ async def start_pipeline(project_id: str, background_tasks: BackgroundTasks):
         "step": 1,
         "status": "active",
         "message": "Staging files for reconstruction...",
-        "cameras": [],
         "predicted_grids": [],
         "report_html": None
     }

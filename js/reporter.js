@@ -7,6 +7,7 @@ export function generateAIReport(params = {}) {
     flaggedFiles = 0,
     gridSize = 10,
     vegIndexMode = 'auto',
+    soilData = null,
   } = params;
 
   // Zonal counts depending on grid size
@@ -84,6 +85,30 @@ export function generateAIReport(params = {}) {
           </div>
         </div>
       </div>
+
+      ${soilData ? `
+      <div class="report-section">
+        <h4>Soil Lab Chemical Properties (${soilData.filename})</h4>
+        <p>Averages parsed from soil sample points mapped to agricultural grid zones.</p>
+        <div class="report-metrics-list">
+          ${soilData.ph ? `
+          <div class="metric-row">
+            <span class="metric-label">Average pH Level</span>
+            <span class="metric-val">${soilData.ph}</span>
+          </div>` : ''}
+          ${soilData.nitrogen ? `
+          <div class="metric-row">
+            <span class="metric-label">Available Nitrogen (N)</span>
+            <span class="metric-val">${soilData.nitrogen} kg/ha</span>
+          </div>` : ''}
+          ${soilData.clay_pct ? `
+          <div class="metric-row">
+            <span class="metric-label">Average Clay Percentage</span>
+            <span class="metric-val">${soilData.clay_pct}%</span>
+          </div>` : ''}
+        </div>
+      </div>
+      ` : ''}
 
       <div class="report-section">
         <h4>Machine Learning Zonal Predictions</h4>
