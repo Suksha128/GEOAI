@@ -1072,15 +1072,15 @@ input[type="range"] {
 /* ── Floating Chatbot Widget Styling ────────────────────────────────────────── */
 .chat-trigger-btn {
   position: fixed;
-  bottom: 2rem;
+  bottom: 3.5rem;
   right: 2rem;
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   border-radius: 50%;
   background: var(--gradient-primary);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 2.5px solid #f6f1e5;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(185, 28, 28, 0.4);
+  box-shadow: 0 4px 20px rgba(185, 28, 28, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1088,9 +1088,39 @@ input[type="range"] {
   transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s;
 }
 
+/* Layered rotating flower petals */
+.chat-trigger-btn::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border: 2px solid #b91c1c;
+  border-radius: 38% 62% 38% 62% / 38% 62% 38% 62%;
+  z-index: -1;
+  animation: spin-clockwise 25s linear infinite;
+  background: rgba(185, 28, 28, 0.02);
+  pointer-events: none;
+}
+
+.chat-trigger-btn::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border: 1.5px solid #d97706;
+  border-radius: 62% 38% 62% 38% / 62% 38% 62% 38%;
+  z-index: -2;
+  animation: spin-counter-clockwise 30s linear infinite;
+  pointer-events: none;
+}
+
 .chat-trigger-btn:hover {
   transform: scale(1.1);
-  box-shadow: 0 6px 25px rgba(185, 28, 28, 0.6), 0 0 15px rgba(185, 28, 28, 0.3);
+  box-shadow: 0 6px 25px rgba(185, 28, 28, 0.55);
 }
 
 .chat-trigger-btn:active {
@@ -1103,7 +1133,7 @@ input[type="range"] {
 
 .chat-window {
   position: fixed;
-  bottom: 6rem;
+  bottom: 8rem;
   right: 2rem;
   width: 380px;
   height: 520px;
@@ -1124,6 +1154,16 @@ input[type="range"] {
   opacity: 0;
   transform: scale(0.8) translateY(40px);
   pointer-events: none;
+}
+
+@keyframes spin-clockwise {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spin-counter-clockwise {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
 }
 
 .chat-header {
