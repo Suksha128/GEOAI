@@ -144,10 +144,12 @@ function init() {
 
 function initUIEvents() {
   // Concurrency slider
-  concurrencySlider.addEventListener('input', (e) => {
-    state.concurrencyLimit = parseInt(e.target.value);
-    concurrencyVal.innerText = state.concurrencyLimit;
-  });
+  if (concurrencySlider) {
+    concurrencySlider.addEventListener('input', (e) => {
+      state.concurrencyLimit = parseInt(e.target.value);
+      if (concurrencyVal) concurrencyVal.innerText = state.concurrencyLimit;
+    });
+  }
 
   // Checkbox config changes
   gridSizeSelect.addEventListener('change', (e) => {
@@ -200,7 +202,7 @@ function initUIEvents() {
   startUploadBtn.addEventListener('click', () => {
     if (uploader.uploadActive) return;
     startUploadBtn.disabled = true;
-    concurrencySlider.disabled = true;
+    if (concurrencySlider) concurrencySlider.disabled = true;
     
     // Assign project ID
     state.projectId = state.liveMode ? "proj_" + Date.now() : "offline_project";
@@ -493,7 +495,7 @@ function resetUploadUI() {
   
   startUploadBtn.disabled = true;
   resetUploadBtn.disabled = true;
-  concurrencySlider.disabled = false;
+  if (concurrencySlider) concurrencySlider.disabled = false;
   folderInput.value = '';
 
   updateSystemStatus('System Ready - Idle', 'pulse-green');
