@@ -80,7 +80,7 @@ function init() {
       if (metrics.speedMBs !== undefined) {
         statsSpeed.innerText = `${metrics.speedMBs.toFixed(1)} MB/s`;
       }
-      if (metrics.eta !== undefined) {
+      if (metrics.eta !== undefined && statsEta) {
         statsEta.innerText = metrics.eta;
       }
 
@@ -99,7 +99,7 @@ function init() {
     onComplete: () => {
       statsSpeed.innerText = '0.0 MB/s';
       statsActiveConnections.innerText = '0 active connections';
-      statsEta.innerText = '00:00:00';
+      if (statsEta) statsEta.innerText = '00:00:00';
       
       updatePipelineStep(1, 'completed', 'Completed', `${uploader.files.length} images`);
       
@@ -137,6 +137,9 @@ function init() {
 
   // 4. Bind UI events
   initUIEvents();
+
+  // 5. Initialize Chatbot
+  initChatbot();
 }
 
 function initUIEvents() {
@@ -461,9 +464,13 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 function updateSystemStatus(text, pulseClass) {
-  systemStatusDot.className = 'status-dot';
-  systemStatusDot.classList.add(pulseClass);
-  systemStatusText.innerText = text;
+  if (systemStatusDot) {
+    systemStatusDot.className = 'status-dot';
+    systemStatusDot.classList.add(pulseClass);
+  }
+  if (systemStatusText) {
+    systemStatusText.innerText = text;
+  }
 }
 
 function enableLayer(layerName) {
@@ -482,7 +489,7 @@ function resetUploadUI() {
   statsUploadedSize.innerText = '0.0 MB / 0.0 MB';
   statsPercentage.innerText = '0% completed';
   progressBar.style.width = '0%';
-  statsEta.innerText = '--:--:--';
+  if (statsEta) statsEta.innerText = '--:--:--';
   
   startUploadBtn.disabled = true;
   resetUploadBtn.disabled = true;
@@ -770,6 +777,173 @@ layerContainer.addEventListener('click', (e) => {
     }
   }
 });
+
+// ── CHATBOT MODULE ──────────────────────────────────────────────────────────
+function initChatbot() {
+  const triggerBtn = document.getElementById('chatTriggerBtn');
+  const chatWindow = document.getElementById('chatWindow');
+  const closeBtn = document.getElementById('chatCloseBtn');
+  const sendBtn = document.getElementById('chatSendBtn');
+  const chatInput = document.getElementById('chatInput');
+  const messagesContainer = document.getElementById('chatMessagesContainer');
+  const chipsContainer = document.getElementById('chatChipsContainer');
+
+  if (!triggerBtn || !chatWindow) return;
+
+  let firstOpen = true;
+
+  triggerBtn.addEventListener('click', () => {
+    chatWindow.classList.toggle('hidden');
+    if (!chatWindow.classList.contains('hidden')) {
+      chatInput.focus();
+      if (firstOpen) {
+        appendChatMessage('assistant', 'Hello! I am your GeoAI Agri-Assistant. Ask me about:\n\n* **Waterlogging mitigation** and surface drainage design.\n* **Soil erosion controls** on sloped terrain.\n* **NDVI crop vigor** and targeted fertilizer application.', 'System Initialized');
+        firstOpen = false;
+      }
+    }
+  });
+
+  closeBtn.addEventListener('click', () => {
+    chatWindow.classList.add('hidden');
+  });
+
+  sendBtn.addEventListener('click', handleChatSubmit);
+  chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      handleChatSubmit();
+    }
+  });
+
+  // Event delegation for quick chips
+  if (chipsContainer) {
+    chipsContainer.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chat-chip');
+      if (chip) {
+        const query = chip.getAttribute('data-query');
+        if (query) {
+          submitChatQuery(query);
+        }
+      }
+    });
+  }
+
+  function handleChatSubmit() {
+    const query = chatInput.value.trim();
+    if (!query) return;
+    chatInput.value = '';
+    submitChatQuery(query);
+  }
+
+  async function submitChatQuery(query) {
+    appendChatMessage('user', query);
+    showTypingIndicator();
+
+    if (state.liveMode) {
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ message: query })
+        });
+        hideTypingIndicator();
+        if (res.ok) {
+          const data = await res.json();
+          appendChatMessage('assistant', data.response, data.source);
+        } else {
+          throw new Error("Backend chat error");
+        }
+      } catch (err) {
+        console.warn("FastAPI chat failed, falling back to local diagnostic:", err);
+        setTimeout(() => {
+          hideTypingIndicator();
+          const response = getLocalAgriResponse(query);
+          appendChatMessage('assistant', response, "Rule-Based Expert System (Offline Fallback)");
+        }, 800);
+      }
+    } else {
+      setTimeout(() => {
+        hideTypingIndicator();
+        const response = getLocalAgriResponse(query);
+        appendChatMessage('assistant', response, "Rule-Based Expert System (Offline Sandbox)");
+      }, 1000);
+    }
+  }
+
+  function appendChatMessage(sender, text, source = null) {
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${sender}`;
+    
+    const formattedHtml = formatMarkdown(text);
+    
+    if (sender === 'assistant' && source) {
+      bubble.innerHTML = `${formattedHtml}<span class="source-badge">${source}</span>`;
+    } else {
+      bubble.innerHTML = formattedHtml;
+    }
+    
+    messagesContainer.appendChild(bubble);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function showTypingIndicator() {
+    if (document.getElementById('chatTypingIndicator')) return;
+
+    const indicator = document.createElement('div');
+    indicator.id = 'chatTypingIndicator';
+    indicator.className = 'typing-indicator';
+    indicator.innerHTML = `
+      <span class="typing-dot"></span>
+      <span class="typing-dot"></span>
+      <span class="typing-dot"></span>
+    `;
+    messagesContainer.appendChild(indicator);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function hideTypingIndicator() {
+    const indicator = document.getElementById('chatTypingIndicator');
+    if (indicator) {
+      indicator.remove();
+    }
+  }
+
+  function formatMarkdown(text) {
+    let html = text;
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    const paragraphs = html.split('\n\n');
+    const formattedParagraphs = paragraphs.map(p => {
+      p = p.trim();
+      if (p.startsWith('*') || p.startsWith('-') || p.startsWith('1.')) {
+        const lines = p.split('\n');
+        const isNumbered = lines[0].trim().match(/^\d+\./);
+        const listItems = lines.map(line => {
+          const cleanLine = line.replace(/^[\*\-\d\.\s]+/, '').trim();
+          return `<li>${cleanLine}</li>`;
+        }).join('');
+        return isNumbered ? `<ol>${listItems}</ol>` : `<ul>${listItems}</ul>`;
+      }
+      p = p.replace(/\n/g, '<br>');
+      return `<p>${p}</p>`;
+    });
+    return formattedParagraphs.join('');
+  }
+
+  function getLocalAgriResponse(msg) {
+    const lower = msg.toLowerCase();
+    if (lower.includes("water") || lower.includes("drain") || lower.includes("flood")) {
+      return "**Waterlogging Mitigation Advice:**\n\n1. **Surface Drainage:** Install contour ditches and open channels to redirect excess surface runoff.\n2. **Subsurface Tiling:** Install perforated plastic pipes (tile drains) 3-4 feet deep to lower the water table.\n3. **Cover Crops:** Plant deep-rooted cover crops like Radish or Rye to increase soil porosity.\n4. **Crop Selection:** Switch to flood-tolerant varieties like select soybean cultivars or sugarcane.";
+    } else if (lower.includes("erosion") || lower.includes("slope") || lower.includes("soil")) {
+      return "**Erosion Control Advice:**\n\n1. **Contour Farming:** Plow and plant crops along the contour lines of the slope to slow water runoff.\n2. **Terracing:** Create step-like ridges on steeper slopes to catch water and soil.\n3. **Mulching:** Apply organic residues to the soil surface to absorb raindrop impact and lock moisture.\n4. **Windbreaks:** Plant rows of trees or shrubs along field borders to reduce wind-driven soil loss.";
+    } else if (lower.includes("yield") || lower.includes("fertilizer") || lower.includes("nutrient")) {
+      return "**Yield Optimization Advice:**\n\n1. **Variable Rate Nitrogen:** Apply fertilizer based on NDVI vigor maps (low NDVI zones need targeted nitrogen boosts).\n2. **pH Management:** Target lime applications to neutralize acidic soil patches detected in zones under 6.0 pH.\n3. **Rotational Sowing:** Rotate cereals with legumes (e.g. Peas, Beans) to naturally fix soil nitrogen levels.";
+    } else {
+      return "Hello! I am your GeoAI Agri-Assistant. Ask me about:\n\n* **Waterlogging mitigation** and surface drainage design.\n* **Soil erosion controls** on sloped terrain.\n* **NDVI crop vigor** and targeted fertilizer application.";
+    }
+  }
+}
 
 // Start application
 window.addEventListener('DOMContentLoaded', init);

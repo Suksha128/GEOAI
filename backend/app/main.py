@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 from .config import settings
-from .routers import upload, pipeline, models
+from .routers import upload, pipeline, models, chat
 
 app = FastAPI(
     title="GeoAI Platform API",
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(upload.router)
 app.include_router(pipeline.router)
 app.include_router(models.router)
+app.include_router(chat.router)
 
 # Resolve Frontend Root directory (Parent directory of /backend)
 FRONTEND_DIR = settings.BASE_DIR.parent

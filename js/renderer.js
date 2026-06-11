@@ -236,7 +236,7 @@ export class CanvasRenderer {
     
     // Flight trajectory
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(0, 162, 255, 0.45)';
+    ctx.strokeStyle = 'rgba(229, 169, 59, 0.55)';
     ctx.lineWidth = 1.5;
     fd.cameras.forEach((cam, idx) => {
       if (idx === 0) ctx.moveTo(cam.x, cam.y);
@@ -251,18 +251,18 @@ export class CanvasRenderer {
       
       if (this.pipelineStep >= 2) {
         if (cam.qcPassed) {
-          ctx.fillStyle = '#10b981';
+          ctx.fillStyle = '#2e7d32';
         } else {
-          ctx.fillStyle = '#ef4444';
+          ctx.fillStyle = '#b91c1c';
           // Warning Circle
           ctx.beginPath();
           ctx.arc(cam.x, cam.y, 8, 0, 2 * Math.PI);
-          ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+          ctx.strokeStyle = 'rgba(185, 28, 28, 0.5)';
           ctx.lineWidth = 1;
           ctx.stroke();
         }
       } else {
-        ctx.fillStyle = '#00a2ff';
+        ctx.fillStyle = '#e5a93b';
       }
       ctx.fill();
     });

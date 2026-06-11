@@ -92,6 +92,7 @@ def get_bundled_html():
     uploader_clean = uploader_clean.replace('"/api/upload"', '"http://localhost:8000/api/upload"')
     app_clean = app_clean.replace('`/api/pipeline/start/', '`http://localhost:8000/api/pipeline/start/')
     app_clean = app_clean.replace('`/api/pipeline/status/', '`http://localhost:8000/api/pipeline/status/')
+    app_clean = app_clean.replace('"/api/chat"', '"http://localhost:8000/api/chat"')
 
     # Dynamically bridge environment detection to set liveMode if the local API is reachable
     app_clean = app_clean.replace(
