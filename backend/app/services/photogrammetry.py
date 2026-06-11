@@ -18,6 +18,18 @@ class PhotogrammetryService:
         except Exception:
             return False
 
+    @staticmethod
+    def check_docker_image_present(image_name: str) -> bool:
+        """Verifies if the specified docker image is available locally."""
+        try:
+            result = subprocess.run(
+                ["docker", "images", "-q", image_name],
+                capture_output=True, text=True, check=True, timeout=3
+            )
+            return len(result.stdout.strip()) > 0
+        except Exception:
+            return False
+
     def _generate_mock_geotiffs(self, upload_dir: Path, output_dir: Path, odm_orthophoto: Path, odm_dem: Path):
         """Generates valid, georeferenced mock multispectral TIFF files using rasterio."""
         odm_ortho_dir = output_dir / "odm_orthophoto"
@@ -133,7 +145,7 @@ class PhotogrammetryService:
         odm_orthophoto = output_dir / "odm_orthophoto" / "odm_orthophoto.tif"
         odm_dem = output_dir / "odm_dem" / "dsm.tif"
         
-        if self.check_docker_installed():
+        if self.check_docker_installed() and self.check_docker_image_present(settings.ODM_DOCKER_IMAGE):
             cmd = [
                 "docker", "run", "--rm",
                 "-v", f"{upload_dir}:/datasets/code/images",
