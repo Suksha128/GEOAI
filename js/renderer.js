@@ -21,6 +21,12 @@ export class CanvasRenderer {
     this.fieldData = null;
     this.pipelineStep = 0;
     
+    // Offscreen Canvas Cache
+    this.orthoCanvas = null;
+    this.demCanvas = null;
+    this.twiCanvas = null;
+    this.ndviCanvas = null;
+    
     this.initEvents();
   }
 
@@ -129,6 +135,14 @@ export class CanvasRenderer {
 
   setFieldData(data) {
     this.fieldData = data;
+    if (data) {
+      this.preRenderLayers(data);
+    } else {
+      this.orthoCanvas = null;
+      this.demCanvas = null;
+      this.twiCanvas = null;
+      this.ndviCanvas = null;
+    }
     this.resize();
   }
 
@@ -169,16 +183,32 @@ export class CanvasRenderer {
     // 1. Draw Raster Layer
     switch (this.currentLayer) {
       case 'ortho':
-        this.drawOrthoRaster(fd);
+        if (this.orthoCanvas) {
+          ctx.drawImage(this.orthoCanvas, 0, 0);
+        } else {
+          this.drawOrthoRaster(fd);
+        }
         break;
       case 'dem':
-        this.drawDemRaster(fd);
+        if (this.demCanvas) {
+          ctx.drawImage(this.demCanvas, 0, 0);
+        } else {
+          this.drawDemRaster(fd);
+        }
         break;
       case 'twi':
-        this.drawTwiRaster(fd);
+        if (this.twiCanvas) {
+          ctx.drawImage(this.twiCanvas, 0, 0);
+        } else {
+          this.drawTwiRaster(fd);
+        }
         break;
       case 'ndvi':
-        this.drawNdviRaster(fd);
+        if (this.ndviCanvas) {
+          ctx.drawImage(this.ndviCanvas, 0, 0);
+        } else {
+          this.drawNdviRaster(fd);
+        }
         break;
       case 'ml':
         this.drawMlRiskGrid(fd);
@@ -401,12 +431,268 @@ export class CanvasRenderer {
           border = 'rgba(245, 158, 11, 0.6)';
         }
 
-        ctx.fillStyle = fill;
-        ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
-        
-        ctx.strokeStyle = border;
-        ctx.strokeRect(x, y, size, size);
       }
     }
+  }
+
+  // ── VALUE NOISE & FRACTAL BROWNIAN MOTION (fBm) GENERATOR ────────────────
+  noise(x, y) {
+    let n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453123;
+    return n - Math.floor(n);
+  }
+
+  smoothNoise(x, y) {
+    const xf = x - Math.floor(x);
+    const yf = y - Math.floor(y);
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    
+    const n00 = this.noise(ix, iy);
+    const n10 = this.noise(ix + 1, iy);
+    const n01 = this.noise(ix, iy + 1);
+    const n11 = this.noise(ix + 1, iy + 1);
+    
+    const tx1 = n00 + xf * (n10 - n00);
+    const tx2 = n01 + xf * (n11 - n01);
+    return tx1 + yf * (tx2 - tx1);
+  }
+
+  fbm(x, y, octaves = 3) {
+    let value = 0;
+    let amplitude = 0.5;
+    let frequency = 1.0;
+    for (let i = 0; i < octaves; i++) {
+      value += amplitude * this.smoothNoise(x * frequency, y * frequency);
+      amplitude *= 0.5;
+      frequency *= 2.0;
+    }
+    return value;
+  }
+
+  // ── OFFSCREEN RASTER PRE-RENDERING ENGINE ─────────────────────────────────
+  preRenderLayers(fd) {
+    const width = fd.width;
+    const height = fd.height;
+
+    this.orthoCanvas = document.createElement('canvas');
+    this.orthoCanvas.width = width;
+    this.orthoCanvas.height = height;
+
+    this.demCanvas = document.createElement('canvas');
+    this.demCanvas.width = width;
+    this.demCanvas.height = height;
+
+    this.twiCanvas = document.createElement('canvas');
+    this.twiCanvas.width = width;
+    this.twiCanvas.height = height;
+
+    this.ndviCanvas = document.createElement('canvas');
+    this.ndviCanvas.width = width;
+    this.ndviCanvas.height = height;
+
+    this.generateOrtho(fd);
+    this.generateDem(fd);
+    this.generateTwi(fd);
+    this.generateNdvi(fd);
+  }
+
+  generateOrtho(fd) {
+    const ctx = this.orthoCanvas.getContext('2d');
+    const width = fd.width;
+    const height = fd.height;
+
+    ctx.fillStyle = '#795c34';
+    ctx.fillRect(0, 0, width, height);
+
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const n = this.fbm(x * 0.015, y * 0.015, 3);
+        const rowPattern = Math.abs(Math.sin(x * 0.5 + y * 0.05));
+        
+        let r = 121, g = 92, b = 52; // Soil
+
+        if (n > 0.45) {
+          if (rowPattern > 0.35) {
+            r = 76; g = 154; b = 42; // Crops green
+          } else {
+            r = 46; g = 117; b = 29; // Shadow green
+          }
+        } else if (n > 0.35) {
+          r = 139; g = 120; b = 90; // Dry grass/sandy soil
+        }
+        
+        // Dark dirt winding access path
+        const roadCenter = width / 2 + Math.sin(y * 0.008) * 80;
+        if (Math.abs(x - roadCenter) < 12) {
+          r = 101; g = 75; b = 45;
+        }
+
+        const idx = (y * width + x) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  generateDem(fd) {
+    const ctx = this.demCanvas.getContext('2d');
+    const width = fd.width;
+    const height = fd.height;
+
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const rIdx = Math.min(fd.elevation.length - 1, Math.floor(y / 4));
+        const cIdx = Math.min(fd.elevation[0].length - 1, Math.floor(x / 4));
+        const elev = fd.elevation[rIdx][cIdx];
+
+        const ratio = Math.max(0, Math.min(1, (elev - 145) / 80));
+        
+        let r = 0, g = 0, b = 0;
+        if (ratio < 0.25) {
+          const t = ratio / 0.25;
+          r = 30; g = Math.round(144 * t); b = 255; // Blue to Cyan
+        } else if (ratio < 0.5) {
+          const t = (ratio - 0.25) / 0.25;
+          r = Math.round(34 * t); g = 139; b = Math.round(255 * (1 - t)); // Cyan to Green
+        } else if (ratio < 0.75) {
+          const t = (ratio - 0.5) / 0.25;
+          r = Math.round(34 + 171 * t); g = Math.round(139 + 30 * t); b = Math.round(34 * (1 - t)); // Green to Brown
+        } else {
+          const t = (ratio - 0.75) / 0.25;
+          r = Math.round(205 + 50 * t); g = Math.round(169 + 86 * t); b = Math.round(150 + 105 * t); // Brown to White
+        }
+
+        const idx = (y * width + x) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    // Dynamic contour lines overlay
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.lineWidth = 1;
+
+    for (let elevTarget = 150; elevTarget <= 220; elevTarget += 5) {
+      ctx.beginPath();
+      let isPathOpen = false;
+      for (let x = 10; x < width - 10; x += 12) {
+        const rIdx = Math.min(fd.elevation.length - 1, Math.floor((height / 2 + Math.sin(x / 100) * 80 + (elevTarget - 180) * 2.2) / 4));
+        if (rIdx >= 0 && rIdx < fd.elevation.length) {
+          const y = rIdx * 4;
+          if (y > 10 && y < height - 10) {
+            if (!isPathOpen) {
+              ctx.moveTo(x, y);
+              isPathOpen = true;
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+        }
+      }
+      ctx.stroke();
+    }
+  }
+
+  generateTwi(fd) {
+    const ctx = this.twiCanvas.getContext('2d');
+    const width = fd.width;
+    const height = fd.height;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, width, height);
+
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const rIdx = Math.min(fd.elevation.length - 1, Math.floor(y / 4));
+        const cIdx = Math.min(fd.elevation[0].length - 1, Math.floor(x / 4));
+        const elev = fd.elevation[rIdx][cIdx];
+        
+        const shade = Math.round(30 + (elev - 150) * 0.4);
+        
+        const idx = (y * width + x) * 4;
+        data[idx] = Math.max(10, Math.min(40, shade - 10));
+        data[idx + 1] = Math.max(15, Math.min(50, shade));
+        data[idx + 2] = Math.max(25, Math.min(70, shade + 15));
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    ctx.strokeStyle = 'rgba(0, 200, 255, 0.75)';
+    ctx.shadowColor = 'rgba(0, 162, 255, 0.9)';
+    
+    fd.flowPaths.forEach((path, idx) => {
+      ctx.beginPath();
+      ctx.lineWidth = idx === fd.flowPaths.length - 1 ? 4.5 : 1.5;
+      ctx.shadowBlur = idx === fd.flowPaths.length - 1 ? 10 : 0;
+      
+      path.forEach((pt, pIdx) => {
+        if (pIdx === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.stroke();
+    });
+    ctx.shadowBlur = 0;
+  }
+
+  generateNdvi(fd) {
+    const ctx = this.ndviCanvas.getContext('2d');
+    const width = fd.width;
+    const height = fd.height;
+
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const rIdx = Math.min(fd.vegetation.length - 1, Math.floor(y / 10));
+        const cIdx = Math.min(fd.vegetation[0].length - 1, Math.floor(x / 10));
+        let ndvi = fd.vegetation[rIdx][cIdx];
+
+        ndvi += (this.fbm(x * 0.05, y * 0.05, 2) - 0.5) * 0.08;
+        ndvi = Math.max(-1.0, Math.min(1.0, ndvi));
+
+        const roadCenter = width / 2 + Math.sin(y * 0.008) * 80;
+        if (Math.abs(x - roadCenter) < 12) {
+          ndvi = -0.15 + (Math.random() - 0.5) * 0.05; // Road
+        }
+
+        let r = 0, g = 0, b = 0;
+        if (ndvi < 0.1) {
+          r = 211; g = 47; b = 47; // Stressed/Soil
+        } else if (ndvi < 0.45) {
+          const t = (ndvi - 0.1) / 0.35;
+          r = Math.round(255 - (255 - 245) * t);
+          g = Math.round(235 - (235 - 124) * t);
+          b = 0; // Yellow/Orange
+        } else {
+          const t = (ndvi - 0.45) / 0.55;
+          r = Math.round(245 - (245 - 27) * t);
+          g = Math.round(124 + (139 - 124) * t);
+          b = Math.round(0 + 32 * t); // Lush green
+        }
+
+        const idx = (y * width + x) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
   }
 }
