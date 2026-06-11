@@ -22,22 +22,32 @@ class ZonalStatsService:
                 crs = src.crs
                 
             xmin, ymin, xmax, ymax = bounds
-            cols = int((xmax - xmin) / cell_size_meters)
-            rows = int((ymax - ymin) / cell_size_meters)
+            
+            # Convert cell size in meters to degrees (~111,000 meters per degree)
+            cell_size_degrees = cell_size_meters / 111000.0
+            
+            cols = int((xmax - xmin) / cell_size_degrees)
+            rows = int((ymax - ymin) / cell_size_degrees)
+            
+            # Ensure reasonable grid dimensions for web client display
+            cols = max(5, min(cols, 40))
+            rows = max(5, min(rows, 30))
+            
+            dx = (xmax - xmin) / cols
+            dy = (ymax - ymin) / rows
             
             polygons = []
             for i in range(cols):
                 for j in range(rows):
-                    x1 = xmin + i * cell_size_meters
-                    y1 = ymin + j * cell_size_meters
-                    x2 = x1 + cell_size_meters
-                    y2 = y1 + cell_size_meters
+                    x1 = xmin + i * dx
+                    y1 = ymin + j * dy
+                    x2 = x1 + dx
+                    y2 = y1 + dy
                     polygons.append(Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)]))
                     
             gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
             
             # Simple aggregation method by extracting raster values at centroids
-            # to remain fast and avoid loading heavy rasterstats dependencies
             centroids = gdf.geometry.centroid
             coords = [(pt.x, pt.y) for pt in centroids]
             
@@ -69,7 +79,6 @@ class ZonalStatsService:
         except Exception:
             # Fallback mock generator
             # Generates a grid layout matching dimensions of our canvas field (800x600 px)
-            # cell sizes: 10m maps to 20px, 20m to 40px, 50m to 100px
             width, height = 800, 600
             pixel_size = cell_size_meters * 2
             cols = int(width / pixel_size)

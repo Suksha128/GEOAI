@@ -327,6 +327,12 @@ function pollLivePipelineStatus() {
         updateFieldDataFromRealQC(data.qc_results);
       }
       
+      // Save predictions and trigger raster re-render
+      if (data.predicted_grids && data.predicted_grids.length > 0) {
+        state.fieldData.predicted_grids = data.predicted_grids;
+        renderer.preRenderRasters();
+      }
+      
       // Light up nodes sequentially
       for (let i = 2; i <= 10; i++) {
         if (i < stepIdx) {
@@ -887,6 +893,10 @@ function updateFieldDataFromRealQC(qcResults) {
   });
   
   state.fieldData.cameras = cameras;
+  state.fieldData.minLat = minLat;
+  state.fieldData.maxLat = maxLat;
+  state.fieldData.minLon = minLon;
+  state.fieldData.maxLon = maxLon;
   renderer.setFieldData(state.fieldData);
 }
 

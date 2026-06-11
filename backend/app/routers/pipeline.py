@@ -94,6 +94,7 @@ def execute_geoai_pipeline(project_id: str):
         status.update({"step": 5, "message": "Correcting DEM spikes and sink breaches..."})
         gis = GisEngineService()
         dem_path = Path(odm_res["dem_path"]) if odm_res["success"] else (project_dir / "odm_dem" / "dsm.tif")
+        gis.correct_dem_spikes_and_sinks(dem_path, project_dir / "gis_outputs" / "dem_filled.tif")
         time.sleep(1.0)
         
         # Step 6: GIS Terrain Analysis
@@ -144,7 +145,7 @@ def execute_geoai_pipeline(project_id: str):
                     break
         
         # Fetch weather station summary (1-year historical archive) and 7-day forecast
-        from ..utils.weather_client import WeatherClient
+        from utils.weather_client import WeatherClient
         weather = WeatherClient()
         weather_summary = {}
         forecast_7d = []

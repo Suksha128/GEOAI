@@ -326,6 +326,45 @@ export class CanvasRenderer {
   }
 
   drawDemRasterRaw(ctx, fd) {
+    if (fd.predicted_grids && fd.predicted_grids.length > 0 && fd.minLat !== undefined) {
+      const latDiff = fd.maxLat - fd.minLat;
+      const lonDiff = fd.maxLon - fd.minLon;
+      const padding = 50;
+      
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, fd.width, fd.height);
+      
+      fd.predicted_grids.forEach(grid => {
+        const [lon1, lat1, lon2, lat2] = grid.bounds;
+        let x1, y1, x2, y2;
+        if (latDiff > 0.00001 && lonDiff > 0.00001) {
+          x1 = padding + ((lon1 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y1 = padding + ((fd.maxLat - lat2) / latDiff) * (fd.height - 2 * padding);
+          x2 = padding + ((lon2 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y2 = padding + ((fd.maxLat - lat1) / latDiff) * (fd.height - 2 * padding);
+        } else return;
+        
+        const w = x2 - x1;
+        const h = y2 - y1;
+        
+        const elev = grid.elevation || 150;
+        const ratio = Math.max(0, Math.min(1, (elev - 150) / 70));
+        
+        let red = 0, green = 0, blue = 0;
+        if (ratio < 0.5) {
+          blue = Math.round(255 * (1 - ratio * 2));
+          green = Math.round(255 * (ratio * 2));
+        } else {
+          green = Math.round(255 * (1 - (ratio - 0.5) * 2));
+          red = Math.round(255 * ((ratio - 0.5) * 2));
+        }
+        
+        ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
+        ctx.fillRect(x1 + 0.2, y1 + 0.2, w - 0.4, h - 0.4);
+      });
+      return;
+    }
+
     const elData = fd.elevation;
     const pixelSize = 4;
     
@@ -373,11 +412,42 @@ export class CanvasRenderer {
     if (this.offscreenCanvases && this.offscreenCanvases.twi) {
       this.ctx.drawImage(this.offscreenCanvases.twi, 0, 0);
     } else {
-      this.drawTwiRasterRaw(this.ctx, fd);
+      this.ctx.drawTwiRasterRaw(this.ctx, fd);
     }
   }
 
   drawTwiRasterRaw(ctx, fd) {
+    if (fd.predicted_grids && fd.predicted_grids.length > 0 && fd.minLat !== undefined) {
+      const latDiff = fd.maxLat - fd.minLat;
+      const lonDiff = fd.maxLon - fd.minLon;
+      const padding = 50;
+      
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, fd.width, fd.height);
+      
+      fd.predicted_grids.forEach(grid => {
+        const [lon1, lat1, lon2, lat2] = grid.bounds;
+        let x1, y1, x2, y2;
+        if (latDiff > 0.00001 && lonDiff > 0.00001) {
+          x1 = padding + ((lon1 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y1 = padding + ((fd.maxLat - lat2) / latDiff) * (fd.height - 2 * padding);
+          x2 = padding + ((lon2 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y2 = padding + ((fd.maxLat - lat1) / latDiff) * (fd.height - 2 * padding);
+        } else return;
+        
+        const w = x2 - x1;
+        const h = y2 - y1;
+        
+        const twi = grid.twi || 2.0;
+        const ratio = Math.max(0, Math.min(1, (twi - 2.0) / 10.0));
+        
+        const intensity = Math.round(255 * ratio);
+        ctx.fillStyle = `rgb(10, ${Math.max(50, intensity)}, ${Math.max(100, intensity)})`;
+        ctx.fillRect(x1 + 0.2, y1 + 0.2, w - 0.4, h - 0.4);
+      });
+      return;
+    }
+
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, fd.width, fd.height);
 
@@ -407,6 +477,45 @@ export class CanvasRenderer {
   }
 
   drawNdviRasterRaw(ctx, fd) {
+    if (fd.predicted_grids && fd.predicted_grids.length > 0 && fd.minLat !== undefined) {
+      const latDiff = fd.maxLat - fd.minLat;
+      const lonDiff = fd.maxLon - fd.minLon;
+      const padding = 50;
+      
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, fd.width, fd.height);
+      
+      fd.predicted_grids.forEach(grid => {
+        const [lon1, lat1, lon2, lat2] = grid.bounds;
+        let x1, y1, x2, y2;
+        if (latDiff > 0.00001 && lonDiff > 0.00001) {
+          x1 = padding + ((lon1 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y1 = padding + ((fd.maxLat - lat2) / latDiff) * (fd.height - 2 * padding);
+          x2 = padding + ((lon2 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y2 = padding + ((fd.maxLat - lat1) / latDiff) * (fd.height - 2 * padding);
+        } else return;
+        
+        const w = x2 - x1;
+        const h = y2 - y1;
+        
+        const ndvi = grid.ndvi || 0.5;
+        let red = 0, green = 0, blue = 0;
+        
+        if (ndvi < 0.2) {
+          red = 150; green = 75; blue = 0;
+        } else if (ndvi < 0.5) {
+          red = 230; green = 200; blue = 50;
+        } else {
+          const intensity = Math.round(255 * ((ndvi - 0.5) / 0.5));
+          red = 16; green = Math.max(120, intensity); blue = 80;
+        }
+        
+        ctx.fillStyle = `rgb(${red}, ${green}, ${blue})`;
+        ctx.fillRect(x1 + 0.2, y1 + 0.2, w - 0.4, h - 0.4);
+      });
+      return;
+    }
+
     const vegData = fd.vegetation;
     const pixelSize = 10;
 
@@ -436,6 +545,52 @@ export class CanvasRenderer {
     
     ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
     ctx.fillRect(0, 0, fd.width, fd.height);
+
+    if (fd.predicted_grids && fd.predicted_grids.length > 0 && fd.minLat !== undefined) {
+      const latDiff = fd.maxLat - fd.minLat;
+      const lonDiff = fd.maxLon - fd.minLon;
+      const padding = 50;
+      
+      fd.predicted_grids.forEach(grid => {
+        const [lon1, lat1, lon2, lat2] = grid.bounds;
+        let x1, y1, x2, y2;
+        if (latDiff > 0.00001 && lonDiff > 0.00001) {
+          x1 = padding + ((lon1 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y1 = padding + ((fd.maxLat - lat2) / latDiff) * (fd.height - 2 * padding);
+          x2 = padding + ((lon2 - fd.minLon) / lonDiff) * (fd.width - 2 * padding);
+          y2 = padding + ((fd.maxLat - lat1) / latDiff) * (fd.height - 2 * padding);
+        } else return;
+        
+        const w = x2 - x1;
+        const h = y2 - y1;
+        
+        const wlRisk = grid.waterlogging_risk || 0;
+        const erRisk = grid.erosion_risk || 0;
+        const ndvi = grid.ndvi || 0.5;
+        
+        let fill = 'rgba(16, 185, 129, 0.2)';
+        let border = 'rgba(16, 185, 129, 0.4)';
+        
+        if (wlRisk > 0.6) {
+          fill = 'rgba(59, 130, 246, 0.45)';
+          border = 'rgba(59, 130, 246, 0.7)';
+        } else if (erRisk > 0.6) {
+          fill = 'rgba(239, 68, 68, 0.45)';
+          border = 'rgba(239, 68, 68, 0.7)';
+        } else if (ndvi < 0.4) {
+          fill = 'rgba(245, 158, 11, 0.45)';
+          border = 'rgba(245, 158, 11, 0.7)';
+        }
+        
+        ctx.fillStyle = fill;
+        ctx.fillRect(x1 + 0.5, y1 + 0.5, w - 1, h - 1);
+        
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x1, y1, w, h);
+      });
+      return;
+    }
 
     const size = this.gridSize * 2;
     
