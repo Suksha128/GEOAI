@@ -121,6 +121,9 @@ function init() {
       updateSystemStatus('Upload Ready - Awaiting Trigger', 'pulse-green');
       resetPipelineUI();
       
+      // Regenerate procedural simulation data to match the actual file count!
+      generateProceduralFieldData(meta.filesCount);
+      
       renderer.setFieldData(state.fieldData);
       renderer.setPipelineStep(0);
       canvasInstruction.style.display = 'none';
@@ -517,7 +520,7 @@ function resetPipelineUI() {
 }
 
 // Procedural Field DB Generator (Same as old layout)
-function generateProceduralFieldData() {
+function generateProceduralFieldData(numFiles) {
   const width = 800;
   const height = 600;
   const data = {
@@ -530,8 +533,12 @@ function generateProceduralFieldData() {
     grids: {}
   };
 
-  const rows = 12;
-  const cols = 16;
+  // Determine grid based on number of files (cap at 400 nodes to avoid browser lag, but reflect density)
+  const count = numFiles ? Math.min(400, numFiles) : 192;
+  const ratio = 4 / 3;
+  const rows = Math.max(2, Math.round(Math.sqrt(count / ratio)));
+  const cols = Math.max(2, Math.round(rows * ratio));
+
   const rowSpacing = height / (rows + 1);
   const colSpacing = width / (cols + 1);
 
@@ -558,11 +565,13 @@ function generateProceduralFieldData() {
     }
   }
 
-  // Faulty images
-  const faultyIndices = [15, 42, 88, 120];
-  faultyIndices.forEach(idx => {
-    if (data.cameras[idx]) {
-      data.cameras[idx].qcPassed = false;
+  // Generate dynamic, hash-based randomized QC status for camera nodes so it is different for every dataset size!
+  data.cameras.forEach(cam => {
+    // Generate simple hash from id and coordinates
+    const hash = Math.abs(Math.sin(cam.id) * 10000);
+    // Flag about 2.5% of cameras as blurry/faulty
+    if ((hash - Math.floor(hash)) < 0.025) {
+      cam.qcPassed = false;
     }
   });
 
