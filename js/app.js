@@ -242,6 +242,14 @@ function pollLivePipelineStatus() {
       const pipelineStatus = data.status;
       const message = data.message;
       
+      // Update field coordinates with real flight data if returned by the backend
+      if (data.cameras && data.cameras.length > 0 && (!state.fieldData || state.fieldData.cameras.length !== data.cameras.length)) {
+        const mappedData = convertGpsToLocalCoordinates(data.cameras);
+        generateProceduralMapsForRealCameras(mappedData);
+        state.fieldData = mappedData;
+        renderer.setFieldData(state.fieldData);
+      }
+      
       // Update UI Header Status
       updateSystemStatus(`[Live Backend] ${message}`, pipelineStatus === 'failed' ? 'pulse-red' : 'pulse-orange');
       
@@ -611,6 +619,125 @@ function generateProceduralFieldData() {
   }
 
   state.fieldData = data;
+}
+
+function convertGpsToLocalCoordinates(cameras) {
+  if (!cameras || cameras.length === 0) return { width: 800, height: 600, cameras: [] };
+
+  let minLat = Infinity, maxLat = -Infinity;
+  let minLon = Infinity, maxLon = -Infinity;
+
+  cameras.forEach(cam => {
+    const lat = cam.lat;
+    const lon = cam.lon;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+  });
+
+  const latSpan = maxLat - minLat;
+  const lonSpan = maxLon - minLon;
+
+  const width = 800;
+  const height = 600;
+
+  const localCameras = cameras.map((cam, idx) => {
+    const lat = cam.lat;
+    const lon = cam.lon;
+    
+    // Normalize and scale to canvas bounds with margins
+    const x = lonSpan > 0 ? ((lon - minLon) / lonSpan) * (width - 160) + 80 : width / 2;
+    const y = latSpan > 0 ? (1 - (lat - minLat) / latSpan) * (height - 160) + 80 : height / 2;
+
+    return {
+      id: cam.id,
+      x: x,
+      y: y,
+      z: cam.alt || 80.0,
+      filename: cam.filename,
+      qcPassed: cam.qcPassed
+    };
+  });
+
+  return {
+    width,
+    height,
+    cameras: localCameras,
+    minLat,
+    maxLat,
+    minLon,
+    maxLon
+  };
+}
+
+function generateProceduralMapsForRealCameras(mappedData) {
+  const width = mappedData.width;
+  const height = mappedData.height;
+  
+  // Calculate centroid of the actual coordinates to center features
+  let avgX = 0, avgY = 0;
+  mappedData.cameras.forEach(cam => {
+    avgX += cam.x;
+    avgY += cam.y;
+  });
+  avgX /= mappedData.cameras.length;
+  avgY /= mappedData.cameras.length;
+
+  // 1. Elevation matrix
+  mappedData.elevation = [];
+  for (let y = 0; y < height; y += 4) {
+    const row = [];
+    for (let x = 0; x < width; x += 4) {
+      const valley = Math.abs(y - (avgY + Math.sin(x / 100) * 80)) * 0.3;
+      const distToHill = Math.hypot(x - (avgX + 150), y - (avgY - 100));
+      const hill = Math.max(0, 150 - distToHill * 0.4);
+      row.push(150 + valley + hill + (Math.random() - 0.5) * 2);
+    }
+    mappedData.elevation.push(row);
+  }
+
+  // 2. Flow channels
+  mappedData.flowPaths = [];
+  for (let x = 20; x < width; x += 60) {
+    const path = [];
+    let curX = x;
+    let curY = Math.random() > 0.5 ? 20 : height - 20;
+    const targetY = avgY + Math.sin(curX / 100) * 80;
+    
+    while (Math.abs(curY - targetY) > 15 && curX > 10 && curX < width - 10) {
+      path.push({x: curX, y: curY});
+      curY += curY < targetY ? 8 : -8;
+      curX += (Math.random() - 0.5) * 12 + (targetY - curY) * 0.02;
+    }
+    mappedData.flowPaths.push(path);
+  }
+
+  const mainRiver = [];
+  for (let x = 10; x < width; x += 10) {
+    mainRiver.push({
+      x,
+      y: avgY + Math.sin(x / 100) * 80 + (Math.random() - 0.5) * 6
+    });
+  }
+  mappedData.flowPaths.push(mainRiver);
+
+  // 3. Vegetation (NDVI)
+  mappedData.vegetation = [];
+  for (let y = 0; y < height; y += 10) {
+    const row = [];
+    for (let x = 0; x < width; x += 10) {
+      const riverDist = Math.abs(y - (avgY + Math.sin(x / 100) * 80));
+      let ndvi = 0.75 - (riverDist * 0.0008) + (Math.random() - 0.5) * 0.1;
+      
+      const dryPatchDist = Math.hypot(x - (avgX - 150), y - (avgY + 120));
+      if (dryPatchDist < 120) {
+        ndvi -= (120 - dryPatchDist) * 0.004;
+      }
+      row.push(Math.max(0.05, Math.min(0.95, ndvi)));
+    }
+    mappedData.vegetation.push(row);
+  }
 }
 
 // Canvas tools helper hook binds

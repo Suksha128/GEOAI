@@ -43,6 +43,19 @@ def execute_geoai_pipeline(project_id: str):
             qc_results = list(executor.map(process_image, enumerate(images)))
             
         passed_cams = [r for r in qc_results if r["passed"]]
+        
+        # Save parsed camera coordinates in status for the frontend
+        status["cameras"] = [
+            {
+                "id": idx,
+                "lat": r["coordinates"]["lat"],
+                "lon": r["coordinates"]["lon"],
+                "alt": r["coordinates"]["alt"],
+                "filename": r["filename"],
+                "qcPassed": r["passed"]
+            }
+            for idx, r in enumerate(qc_results)
+        ]
         time.sleep(1.5) # Simulate processing delay
         
         # Step 3: Photogrammetry (ODM)
@@ -135,6 +148,7 @@ async def start_pipeline(project_id: str, background_tasks: BackgroundTasks):
         "step": 1,
         "status": "active",
         "message": "Staging files for reconstruction...",
+        "cameras": [],
         "predicted_grids": [],
         "report_html": None
     }
