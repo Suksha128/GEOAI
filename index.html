@@ -92,6 +92,18 @@
             </div>
           </div>
 
+          <div class="soil-upload-section">
+            <span class="section-title-sub">🔬 Optional: Soil Chemistry Report (.csv)</span>
+            <div class="soil-upload-container">
+              <label class="soil-file-btn">
+                Select Soil CSV
+                <input type="file" id="soilFileInput" accept=".csv" class="hidden-input">
+              </label>
+              <span id="soilFileName" class="soil-file-name">No file selected</span>
+              <button id="clearSoilFileBtn" class="clear-soil-btn" style="display: none;">&times;</button>
+            </div>
+          </div>
+
           <div class="upload-actions">
             <button id="startUploadBtn" class="primary-btn" disabled>Start Resumable Upload</button>
             <button id="resetUploadBtn" class="secondary-btn" disabled>Clear Data</button>

@@ -1488,3 +1488,77 @@ input[type="range"] {
     opacity: 0;
   }
 }
+
+/* ── Dedicated Optional Soil Upload Panel ────────────────────────────────── */
+.soil-upload-section {
+  margin-top: 1.25rem;
+  border-top: 1px dashed rgba(46, 37, 27, 0.15);
+  padding-top: 1rem;
+}
+
+.section-title-sub {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.soil-upload-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(46, 37, 27, 0.08);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.soil-file-btn {
+  background: var(--text-muted);
+  color: #fff;
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+  user-select: none;
+}
+
+.soil-file-btn:hover {
+  background: var(--text-main);
+}
+
+.soil-file-btn:active {
+  transform: scale(0.97);
+}
+
+.soil-file-name {
+  font-size: 0.8rem;
+  color: var(--text-main);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-grow: 1;
+}
+
+.clear-soil-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-azure);
+  font-size: 1.25rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  transition: color 0.2s ease;
+}
+
+.clear-soil-btn:hover {
+  color: var(--color-click-highlight);
+}

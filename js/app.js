@@ -22,6 +22,7 @@ const state = {
   errorCorrectionEnabled: true,
   sinkFillingEnabled: true,
   soilData: null,
+  soilFile: null, // Separately uploaded soil report file object
 };
 
 // UI Elements
@@ -35,6 +36,9 @@ const gridSizeSelect = document.getElementById('gridSizeSelect');
 const vegIndexSelect = document.getElementById('vegIndexSelect');
 const errorCorrectionToggle = document.getElementById('errorCorrectionToggle');
 const sinkFillingToggle = document.getElementById('sinkFillingToggle');
+const soilFileInput = document.getElementById('soilFileInput');
+const soilFileName = document.getElementById('soilFileName');
+const clearSoilFileBtn = document.getElementById('clearSoilFileBtn');
 
 const statsFilesCount = document.getElementById('statsFilesCount');
 const statsFolderCount = document.getElementById('statsFolderCount');
@@ -210,18 +214,76 @@ function initUIEvents() {
     
     // Assign project ID
     state.projectId = state.liveMode ? "proj_" + Date.now() : "offline_project";
+
+    // Inject separately uploaded soil report file object if set
+    if (state.soilFile) {
+      const exists = uploader.files.some(f => f.name === state.soilFile.name);
+      if (!exists) {
+        uploader.files.push({
+          name: state.soilFile.name,
+          size: state.soilFile.size,
+          relativePath: state.soilFile.name,
+          uploaded: false,
+          rawFile: state.soilFile
+        });
+        uploader.totalSize += state.soilFile.size;
+      }
+    }
+    
     uploader.startUpload(state.concurrencyLimit, state.liveMode, state.projectId);
   });
 
   // Reset upload action
   resetUploadBtn.addEventListener('click', () => {
     if (state.statusPollInterval) clearInterval(state.statusPollInterval);
+    
+    // Reset separate soil report file state
+    state.soilFile = null;
+    state.soilData = null;
+    if (soilFileInput) soilFileInput.value = '';
+    if (soilFileName) soilFileName.innerText = 'No file selected';
+    if (clearSoilFileBtn) clearSoilFileBtn.style.display = 'none';
+
     uploader.reset();
     resetUploadUI();
     resetPipelineUI();
     renderer.setFieldData(null);
     canvasInstruction.style.display = 'flex';
   });
+
+  // Soil file selection event listener
+  if (soilFileInput) {
+    soilFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+          alert("Please select a valid CSV soil report file.");
+          soilFileInput.value = '';
+          return;
+        }
+        state.soilFile = file;
+        if (soilFileName) soilFileName.innerText = file.name;
+        if (clearSoilFileBtn) clearSoilFileBtn.style.display = 'inline-block';
+        
+        // Parse on the client side immediately for simulated reports
+        checkAndParseSoilReport([file]);
+      }
+    });
+  }
+
+  // Clear soil file event listener
+  if (clearSoilFileBtn) {
+    clearSoilFileBtn.addEventListener('click', () => {
+      state.soilFile = null;
+      state.soilData = null;
+      if (soilFileInput) soilFileInput.value = '';
+      if (soilFileName) soilFileName.innerText = 'No file selected';
+      if (clearSoilFileBtn) clearSoilFileBtn.style.display = 'none';
+      if (state.pipelineCompleted) {
+        triggerReportRecompile();
+      }
+    });
+  }
 }
 
 // LIVE BACKEND INTERACTION
