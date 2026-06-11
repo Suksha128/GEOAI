@@ -469,6 +469,39 @@ export class CanvasRenderer {
     return value;
   }
 
+  // ── HILLSHADE LIGHTING MODEL ─────────────────────────────────────────────
+  getHillshade(fd, x, y) {
+    const rIdx = Math.min(fd.elevation.length - 1, Math.floor(y / 4));
+    const cIdx = Math.min(fd.elevation[0].length - 1, Math.floor(x / 4));
+    
+    const rPrev = Math.max(0, rIdx - 1);
+    const rNext = Math.min(fd.elevation.length - 1, rIdx + 1);
+    const cPrev = Math.max(0, cIdx - 1);
+    const cNext = Math.min(fd.elevation[0].length - 1, cIdx + 1);
+    
+    const z_left = fd.elevation[rIdx][cPrev];
+    const z_right = fd.elevation[rIdx][cNext];
+    const z_top = fd.elevation[rPrev][cIdx];
+    const z_bottom = fd.elevation[rNext][cIdx];
+    
+    // Gradients
+    const dz_dx = (z_right - z_left) * 0.25;
+    const dz_dy = (z_bottom - z_top) * 0.25;
+    
+    // Slope and Aspect
+    const slope = Math.atan(Math.sqrt(dz_dx * dz_dx + dz_dy * dz_dy));
+    const aspect = Math.atan2(-dz_dy, dz_dx);
+    
+    // Sun lighting angles: Azimuth = 315° (NW), Altitude = 45°
+    const sunAzimuth = 315 * Math.PI / 180;
+    const sunZenith = 45 * Math.PI / 180;
+    
+    const hillshade = Math.cos(sunZenith) * Math.cos(slope) + 
+                      Math.sin(sunZenith) * Math.sin(slope) * Math.cos(sunAzimuth - aspect);
+                      
+    return Math.max(0, Math.min(1, hillshade));
+  }
+
   // ── OFFSCREEN RASTER PRE-RENDERING ENGINE ─────────────────────────────────
   preRenderLayers(fd) {
     const width = fd.width;
@@ -507,28 +540,72 @@ export class CanvasRenderer {
     const imgData = ctx.createImageData(width, height);
     const data = imgData.data;
 
+    let avgX = 0, avgY = 0;
+    fd.cameras.forEach(cam => { avgX += cam.x; avgY += cam.y; });
+    avgX /= fd.cameras.length;
+    avgY /= fd.cameras.length;
+
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const n = this.fbm(x * 0.015, y * 0.015, 3);
-        const rowPattern = Math.abs(Math.sin(x * 0.5 + y * 0.05));
+        const noiseVal = (this.noise(x, y) - 0.5) * 15;
+        const vegNoise = this.fbm(x * 0.008, y * 0.008, 3);
         
-        let r = 121, g = 92, b = 52; // Soil
+        let r = 139, g = 115, b = 85; // Sandy Soil
 
-        if (n > 0.45) {
-          if (rowPattern > 0.35) {
-            r = 76; g = 154; b = 42; // Crops green
-          } else {
-            r = 46; g = 117; b = 29; // Shadow green
-          }
-        } else if (n > 0.35) {
-          r = 139; g = 120; b = 90; // Dry grass/sandy soil
-        }
+        const isPivotCircle = Math.hypot(x - (avgX - 180), y - (avgY - 100)) < 130;
+        const isRectField1 = x > avgX && y < avgY + 50;
+        const isRectField2 = x < avgX && y > avgY + 50;
         
-        // Dark dirt winding access path
-        const roadCenter = width / 2 + Math.sin(y * 0.008) * 80;
-        if (Math.abs(x - roadCenter) < 12) {
-          r = 101; g = 75; b = 45;
+        if (isPivotCircle) {
+          const dist = Math.hypot(x - (avgX - 180), y - (avgY - 100));
+          const ringPattern = Math.abs(Math.sin(dist * 0.3));
+          if (ringPattern > 0.35) {
+            r = 34; g = 139; b = 34; // Crops
+          } else {
+            r = 143; g = 120; b = 75; // Harvested
+          }
+        } else if (isRectField1) {
+          const rowPattern = Math.abs(Math.sin(x * 0.4));
+          if (rowPattern > 0.4) {
+            r = 46; g = 125; b = 50;
+          } else {
+            r = 85; g = 65; b = 35;
+          }
+        } else if (isRectField2) {
+          const rowPattern = Math.abs(Math.sin(y * 0.3));
+          if (rowPattern > 0.35) {
+            r = 100; g = 180; b = 50;
+          } else {
+            r = 90; g = 75; b = 45;
+          }
+        } else {
+          if (vegNoise > 0.42) {
+            r = 27; g = 94; b = 32; // Trees
+          } else if (vegNoise > 0.35) {
+            r = 107; g = 142; b = 35; // Wild grass
+          }
         }
+
+        const roadCenter = width / 2 + Math.sin(y * 0.006) * 110;
+        const isRoad = Math.abs(x - roadCenter) < 14;
+        
+        const tireTrack1 = Math.abs(x - (roadCenter + 60)) < 1.5 || Math.abs(x - (roadCenter + 66)) < 1.5;
+        const tireTrack2 = Math.abs(y - (avgY + 120)) < 1.5 || Math.abs(y - (avgY + 126)) < 1.5;
+        
+        if (isRoad) {
+          r = 110; g = 85; b = 55;
+          if (Math.abs(x - roadCenter) > 4 && Math.abs(x - roadCenter) < 8) {
+            r = 85; g = 65; b = 40;
+          }
+        } else if (tireTrack1 && (isRectField1 || vegNoise > 0.3)) {
+          r = 75; g = 60; b = 35;
+        } else if (tireTrack2 && (isRectField2 || vegNoise > 0.3)) {
+          r = 75; g = 60; b = 35;
+        }
+
+        r = Math.max(0, Math.min(255, r + noiseVal));
+        g = Math.max(0, Math.min(255, g + noiseVal));
+        b = Math.max(0, Math.min(255, b + noiseVal));
 
         const idx = (y * width + x) * 4;
         data[idx] = r;
@@ -557,19 +634,27 @@ export class CanvasRenderer {
         const ratio = Math.max(0, Math.min(1, (elev - 145) / 80));
         
         let r = 0, g = 0, b = 0;
-        if (ratio < 0.25) {
-          const t = ratio / 0.25;
-          r = 30; g = Math.round(144 * t); b = 255; // Blue to Cyan
-        } else if (ratio < 0.5) {
-          const t = (ratio - 0.25) / 0.25;
-          r = Math.round(34 * t); g = 139; b = Math.round(255 * (1 - t)); // Cyan to Green
-        } else if (ratio < 0.75) {
-          const t = (ratio - 0.5) / 0.25;
-          r = Math.round(34 + 171 * t); g = Math.round(139 + 30 * t); b = Math.round(34 * (1 - t)); // Green to Brown
+        if (ratio < 0.2) {
+          r = 10; g = 50; b = 180; // Water channels
+        } else if (ratio < 0.4) {
+          const t = (ratio - 0.2) / 0.2;
+          r = Math.round(10 + 100 * t); g = Math.round(120 + 60 * t); b = Math.round(180 * (1 - t)); // Low plains
+        } else if (ratio < 0.6) {
+          const t = (ratio - 0.4) / 0.2;
+          r = Math.round(110 + 130 * t); g = Math.round(180 + 40 * t); b = Math.round(30 * t); // Mid plains
+        } else if (ratio < 0.8) {
+          const t = (ratio - 0.6) / 0.2;
+          r = Math.round(240 - 55 * t); g = Math.round(220 - 140 * t); b = Math.round(30 * (1 - t)); // Hills
         } else {
-          const t = (ratio - 0.75) / 0.25;
-          r = Math.round(205 + 50 * t); g = Math.round(169 + 86 * t); b = Math.round(150 + 105 * t); // Brown to White
+          const t = (ratio - 0.8) / 0.2;
+          r = Math.round(185 + 70 * t); g = Math.round(80 + 175 * t); b = Math.round(20 + 235 * t); // High peaks
         }
+
+        const shade = this.getHillshade(fd, x, y);
+        const scale = 0.35 + shade * 0.75;
+        r = Math.max(0, Math.min(255, Math.round(r * scale)));
+        g = Math.max(0, Math.min(255, Math.round(g * scale)));
+        b = Math.max(0, Math.min(255, Math.round(b * scale)));
 
         const idx = (y * width + x) * 4;
         data[idx] = r;
@@ -580,8 +665,7 @@ export class CanvasRenderer {
     }
     ctx.putImageData(imgData, 0, 0);
 
-    // Dynamic contour lines overlay
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.lineWidth = 1;
 
     for (let elevTarget = 150; elevTarget <= 220; elevTarget += 5) {
@@ -610,35 +694,67 @@ export class CanvasRenderer {
     const width = fd.width;
     const height = fd.height;
 
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, width, height);
-
-    const imgData = ctx.getImageData(0, 0, width, height);
+    const imgData = ctx.createImageData(width, height);
     const data = imgData.data;
+
+    let avgX = 0, avgY = 0;
+    fd.cameras.forEach(cam => { avgX += cam.x; avgY += cam.y; });
+    avgX /= fd.cameras.length;
+    avgY /= fd.cameras.length;
+
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const rIdx = Math.min(fd.elevation.length - 1, Math.floor(y / 4));
         const cIdx = Math.min(fd.elevation[0].length - 1, Math.floor(x / 4));
         const elev = fd.elevation[rIdx][cIdx];
+
+        const centerValY = avgY + Math.sin(x / 100) * 80;
+        const distToRiver = Math.abs(y - centerValY);
         
-        const shade = Math.round(30 + (elev - 150) * 0.4);
-        
+        const elevFactor = 1 - Math.max(0, Math.min(1, (elev - 145) / 80));
+        const riverFactor = Math.exp(-distToRiver * 0.015);
+        const wetness = Math.max(0, Math.min(1, elevFactor * 0.4 + riverFactor * 0.6));
+
+        let r = 0, g = 0, b = 0;
+        if (wetness < 0.3) {
+          const t = wetness / 0.3;
+          r = Math.round(15 + 30 * t);
+          g = Math.round(23 + 32 * t);
+          b = Math.round(42 + 28 * t); // Slate
+        } else if (wetness < 0.75) {
+          const t = (wetness - 0.3) / 0.45;
+          r = Math.round(45 - 45 * t);
+          g = Math.round(55 + 75 * t);
+          b = Math.round(70 + 110 * t); // Moist
+        } else {
+          const t = (wetness - 0.75) / 0.25;
+          r = 0;
+          g = Math.round(130 + 125 * t);
+          b = Math.round(180 + 75 * t); // Saturated cyan
+        }
+
+        const shade = this.getHillshade(fd, x, y);
+        const scale = 0.5 + shade * 0.6;
+        r = Math.max(0, Math.min(255, Math.round(r * scale)));
+        g = Math.max(0, Math.min(255, Math.round(g * scale)));
+        b = Math.max(0, Math.min(255, Math.round(b * scale)));
+
         const idx = (y * width + x) * 4;
-        data[idx] = Math.max(10, Math.min(40, shade - 10));
-        data[idx + 1] = Math.max(15, Math.min(50, shade));
-        data[idx + 2] = Math.max(25, Math.min(70, shade + 15));
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
         data[idx + 3] = 255;
       }
     }
     ctx.putImageData(imgData, 0, 0);
 
-    ctx.strokeStyle = 'rgba(0, 200, 255, 0.75)';
-    ctx.shadowColor = 'rgba(0, 162, 255, 0.9)';
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.85)';
+    ctx.shadowColor = 'rgba(0, 200, 255, 0.9)';
     
     fd.flowPaths.forEach((path, idx) => {
       ctx.beginPath();
-      ctx.lineWidth = idx === fd.flowPaths.length - 1 ? 4.5 : 1.5;
-      ctx.shadowBlur = idx === fd.flowPaths.length - 1 ? 10 : 0;
+      ctx.lineWidth = idx === fd.flowPaths.length - 1 ? 5.0 : 1.8;
+      ctx.shadowBlur = idx === fd.flowPaths.length - 1 ? 12 : 0;
       
       path.forEach((pt, pIdx) => {
         if (pIdx === 0) ctx.moveTo(pt.x, pt.y);
@@ -657,33 +773,72 @@ export class CanvasRenderer {
     const imgData = ctx.createImageData(width, height);
     const data = imgData.data;
 
+    let avgX = 0, avgY = 0;
+    fd.cameras.forEach(cam => { avgX += cam.x; avgY += cam.y; });
+    avgX /= fd.cameras.length;
+    avgY /= fd.cameras.length;
+
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const rIdx = Math.min(fd.vegetation.length - 1, Math.floor(y / 10));
-        const cIdx = Math.min(fd.vegetation[0].length - 1, Math.floor(x / 10));
-        let ndvi = fd.vegetation[rIdx][cIdx];
+        const vegNoise = this.fbm(x * 0.008, y * 0.008, 3);
+        
+        let ndvi = 0.15;
 
-        ndvi += (this.fbm(x * 0.05, y * 0.05, 2) - 0.5) * 0.08;
-        ndvi = Math.max(-1.0, Math.min(1.0, ndvi));
-
-        const roadCenter = width / 2 + Math.sin(y * 0.008) * 80;
-        if (Math.abs(x - roadCenter) < 12) {
-          ndvi = -0.15 + (Math.random() - 0.5) * 0.05; // Road
+        const isPivotCircle = Math.hypot(x - (avgX - 180), y - (avgY - 100)) < 130;
+        const isRectField1 = x > avgX && y < avgY + 50;
+        const isRectField2 = x < avgX && y > avgY + 50;
+        
+        if (isPivotCircle) {
+          const dist = Math.hypot(x - (avgX - 180), y - (avgY - 100));
+          const ringPattern = Math.sin(dist * 0.3);
+          ndvi = ringPattern > 0.35 ? 0.78 : 0.18;
+        } else if (isRectField1) {
+          const rowPattern = Math.sin(x * 0.4);
+          ndvi = rowPattern > 0.4 ? 0.82 : 0.20;
+        } else if (isRectField2) {
+          const rowPattern = Math.sin(y * 0.3);
+          ndvi = rowPattern > 0.35 ? 0.72 : 0.16;
+        } else {
+          if (vegNoise > 0.42) {
+            ndvi = 0.85;
+          } else if (vegNoise > 0.35) {
+            ndvi = 0.55;
+          }
         }
+
+        const roadCenter = width / 2 + Math.sin(y * 0.006) * 110;
+        const isRoad = Math.abs(x - roadCenter) < 14;
+        
+        const tireTrack1 = Math.abs(x - (roadCenter + 60)) < 1.5 || Math.abs(x - (roadCenter + 66)) < 1.5;
+        const tireTrack2 = Math.abs(y - (avgY + 120)) < 1.5 || Math.abs(y - (avgY + 126)) < 1.5;
+
+        if (isRoad) {
+          ndvi = -0.15;
+        } else if ((tireTrack1 && isRectField1) || (tireTrack2 && isRectField2)) {
+          ndvi = 0.08;
+        }
+
+        ndvi += (this.noise(x, y) - 0.5) * 0.08;
+        ndvi = Math.max(-1.0, Math.min(1.0, ndvi));
 
         let r = 0, g = 0, b = 0;
         if (ndvi < 0.1) {
-          r = 211; g = 47; b = 47; // Stressed/Soil
+          r = 211; g = 47; b = 47; // Red/brown (soil/road)
         } else if (ndvi < 0.45) {
           const t = (ndvi - 0.1) / 0.35;
           r = Math.round(255 - (255 - 245) * t);
           g = Math.round(235 - (235 - 124) * t);
-          b = 0; // Yellow/Orange
-        } else {
-          const t = (ndvi - 0.45) / 0.55;
+          b = 0; // Yellow/orange
+        } else if (ndvi < 0.78) {
+          const t = (ndvi - 0.45) / 0.33;
           r = Math.round(245 - (245 - 27) * t);
           g = Math.round(124 + (139 - 124) * t);
-          b = Math.round(0 + 32 * t); // Lush green
+          b = Math.round(0 + 32 * t); // Bright green
+        } else {
+          const t = (ndvi - 0.78) / 0.22;
+          r = Math.round(27 - (27 - 10) * t);
+          g = Math.round(139 - (139 - 80) * t);
+          b = Math.round(32 - (32 - 15) * t); // Dark forest green
         }
 
         const idx = (y * width + x) * 4;
