@@ -20,8 +20,15 @@ export class CanvasRenderer {
     this.gridSize = 10;
     this.fieldData = null;
     this.pipelineStep = 0;
+    this.offscreenCanvases = null;
     
     this.initEvents();
+    
+    // Observe size changes to keep internal drawing bounds synced with layout display size
+    this.resizeObserver = new ResizeObserver(() => {
+      this.resize();
+    });
+    this.resizeObserver.observe(this.container);
   }
 
   /**
@@ -129,7 +136,32 @@ export class CanvasRenderer {
 
   setFieldData(data) {
     this.fieldData = data;
+    this.preRenderRasters();
     this.resize();
+  }
+
+  preRenderRasters() {
+    if (!this.fieldData) return;
+    const fd = this.fieldData;
+    
+    this.offscreenCanvases = {
+      ortho: this.createOffscreen(fd.width, fd.height),
+      dem: this.createOffscreen(fd.width, fd.height),
+      twi: this.createOffscreen(fd.width, fd.height),
+      ndvi: this.createOffscreen(fd.width, fd.height)
+    };
+    
+    this.drawOrthoRasterRaw(this.offscreenCanvases.ortho.getContext('2d'), fd);
+    this.drawDemRasterRaw(this.offscreenCanvases.dem.getContext('2d'), fd);
+    this.drawTwiRasterRaw(this.offscreenCanvases.twi.getContext('2d'), fd);
+    this.drawNdviRasterRaw(this.offscreenCanvases.ndvi.getContext('2d'), fd);
+  }
+
+  createOffscreen(w, h) {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    return canvas;
   }
 
   setPipelineStep(step) {
@@ -239,8 +271,14 @@ export class CanvasRenderer {
   }
 
   drawOrthoRaster(fd) {
-    const ctx = this.ctx;
-    
+    if (this.offscreenCanvases && this.offscreenCanvases.ortho) {
+      this.ctx.drawImage(this.offscreenCanvases.ortho, 0, 0);
+    } else {
+      this.drawOrthoRasterRaw(this.ctx, fd);
+    }
+  }
+
+  drawOrthoRasterRaw(ctx, fd) {
     // Background soil
     ctx.fillStyle = '#3f6212';
     ctx.fillRect(0, 0, fd.width, fd.height);
@@ -280,7 +318,14 @@ export class CanvasRenderer {
   }
 
   drawDemRaster(fd) {
-    const ctx = this.ctx;
+    if (this.offscreenCanvases && this.offscreenCanvases.dem) {
+      this.ctx.drawImage(this.offscreenCanvases.dem, 0, 0);
+    } else {
+      this.drawDemRasterRaw(this.ctx, fd);
+    }
+  }
+
+  drawDemRasterRaw(ctx, fd) {
     const elData = fd.elevation;
     const pixelSize = 4;
     
@@ -325,7 +370,14 @@ export class CanvasRenderer {
   }
 
   drawTwiRaster(fd) {
-    const ctx = this.ctx;
+    if (this.offscreenCanvases && this.offscreenCanvases.twi) {
+      this.ctx.drawImage(this.offscreenCanvases.twi, 0, 0);
+    } else {
+      this.drawTwiRasterRaw(this.ctx, fd);
+    }
+  }
+
+  drawTwiRasterRaw(ctx, fd) {
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, fd.width, fd.height);
 
@@ -347,7 +399,14 @@ export class CanvasRenderer {
   }
 
   drawNdviRaster(fd) {
-    const ctx = this.ctx;
+    if (this.offscreenCanvases && this.offscreenCanvases.ndvi) {
+      this.ctx.drawImage(this.offscreenCanvases.ndvi, 0, 0);
+    } else {
+      this.drawNdviRasterRaw(this.ctx, fd);
+    }
+  }
+
+  drawNdviRasterRaw(ctx, fd) {
     const vegData = fd.vegetation;
     const pixelSize = 10;
 

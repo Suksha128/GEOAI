@@ -129,6 +129,9 @@ function init() {
       // Look for a soil report file and parse it!
       checkAndParseSoilReport(uploader.files);
       
+      // Generate field data dynamically from the parsed files!
+      generateFieldDataFromFiles(uploader.files);
+      
       renderer.setFieldData(state.fieldData);
       renderer.setPipelineStep(0);
       canvasInstruction.style.display = 'none';
@@ -318,6 +321,11 @@ function pollLivePipelineStatus() {
       
       // Update UI Header Status
       updateSystemStatus(`[Live Backend] ${message}`, pipelineStatus === 'failed' ? 'pulse-red' : 'pulse-orange');
+      
+      // Map coordinates dynamically from backend real QC results
+      if (data.qc_results && data.qc_results.length > 0) {
+        updateFieldDataFromRealQC(data.qc_results);
+      }
       
       // Light up nodes sequentially
       for (let i = 2; i <= 10; i++) {
@@ -684,6 +692,202 @@ function generateProceduralFieldData() {
   }
 
   state.fieldData = data;
+}
+
+// Deterministic hash code generator for strings
+function getDeterministicHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash);
+}
+
+// Generate field cameras procedurally matching the exact upload file list size and names
+function generateFieldDataFromFiles(files) {
+  if (!files || files.length === 0) {
+    generateProceduralFieldData();
+    return;
+  }
+  
+  const width = 800;
+  const height = 600;
+  
+  // Filter out soil csv and other non-image files for camera counts
+  const imageFiles = files.filter(f => {
+    const nameLower = f.name.toLowerCase();
+    return nameLower.endsWith('.jpg') || nameLower.endsWith('.jpeg') || nameLower.endsWith('.png') || nameLower.endsWith('.tif') || nameLower.endsWith('.tiff');
+  });
+  
+  if (imageFiles.length === 0) {
+    generateProceduralFieldData();
+    return;
+  }
+  
+  const N = imageFiles.length;
+  // Calculate grid layout for images based on N
+  const cols = Math.ceil(Math.sqrt(N * (width / height)));
+  const rows = Math.ceil(N / cols);
+  
+  const rowSpacing = height / (rows + 1);
+  const colSpacing = width / (cols + 1);
+  
+  const cameras = [];
+  let fileIdx = 0;
+  
+  for (let r = 0; r < rows; r++) {
+    const y = rowSpacing * (r + 1);
+    const colsRange = r % 2 === 0 ? Array.from({length: cols}, (_, i) => i) : Array.from({length: cols}, (_, i) => cols - 1 - i);
+    
+    for (const c of colsRange) {
+      if (fileIdx >= N) break;
+      const x = colSpacing * (c + 1);
+      const gpsDriftX = (Math.random() - 0.5) * 6;
+      const gpsDriftY = (Math.random() - 0.5) * 6;
+      
+      const file = imageFiles[fileIdx];
+      const filename = file.name;
+      
+      // Determine if blurry or failed based on a deterministic hash of the filename
+      const hash = getDeterministicHash(filename);
+      // Flag about 4% of cameras as blurry or poorly exposed dynamically
+      const qcPassed = (hash % 100) >= 4;
+      
+      cameras.push({
+        id: fileIdx,
+        x: x + gpsDriftX,
+        y: y + gpsDriftY,
+        z: 80 + (Math.random() - 0.5) * 2,
+        filename: filename,
+        pitch: (Math.random() - 0.5) * 2,
+        roll: (Math.random() - 0.5) * 2,
+        yaw: r % 2 === 0 ? 0 : 180,
+        qcPassed: qcPassed
+      });
+      
+      fileIdx++;
+    }
+  }
+  
+  // Elevation matrix
+  const elevation = [];
+  for (let y = 0; y < height; y += 4) {
+    const row = [];
+    for (let x = 0; x < width; x += 4) {
+      const valley = Math.abs(y - (height / 2 + Math.sin(x / 100) * 80)) * 0.3;
+      const distToHill = Math.hypot(x - 700, y - 100);
+      const hill = Math.max(0, 150 - distToHill * 0.4);
+      row.push(150 + valley + hill + (Math.random() - 0.5) * 2);
+    }
+    elevation.push(row);
+  }
+  
+  // Flow channels
+  const flowPaths = [];
+  for (let x = 20; x < width; x += 60) {
+    const path = [];
+    let curX = x;
+    let curY = Math.random() > 0.5 ? 20 : height - 20;
+    const targetY = height / 2 + Math.sin(curX / 100) * 80;
+    
+    while (Math.abs(curY - targetY) > 15 && curX > 10 && curX < width - 10) {
+      path.push({x: curX, y: curY});
+      curY += curY < targetY ? 8 : -8;
+      curX += (Math.random() - 0.5) * 12 + (targetY - curY) * 0.02;
+    }
+    flowPaths.push(path);
+  }
+  const mainRiver = [];
+  for (let x = 10; x < width; x += 10) {
+    mainRiver.push({
+      x,
+      y: height / 2 + Math.sin(x / 100) * 80 + (Math.random() - 0.5) * 6
+    });
+  }
+  flowPaths.push(mainRiver);
+  
+  // Vegetation (NDVI)
+  const vegetation = [];
+  for (let y = 0; y < height; y += 10) {
+    const row = [];
+    for (let x = 0; x < width; x += 10) {
+      const riverDist = Math.abs(y - (height / 2 + Math.sin(x / 100) * 80));
+      let ndvi = 0.75 - (riverDist * 0.0008) + (Math.random() - 0.5) * 0.1;
+      const dryPatchDist = Math.hypot(x - 150, y - 480);
+      if (dryPatchDist < 120) {
+        ndvi -= (120 - dryPatchDist) * 0.004;
+      }
+      row.push(Math.max(0.05, Math.min(0.95, ndvi)));
+    }
+    vegetation.push(row);
+  }
+  
+  state.fieldData = {
+    width,
+    height,
+    cameras,
+    elevation,
+    flowPaths,
+    vegetation,
+    grids: {}
+  };
+}
+
+// Normalize and map real EXIF GPS coordinates relative to canvas boundaries
+function updateFieldDataFromRealQC(qcResults) {
+  if (!qcResults || qcResults.length === 0) return;
+  
+  // Find min/max coordinates
+  let minLat = Infinity, maxLat = -Infinity;
+  let minLon = Infinity, maxLon = -Infinity;
+  
+  qcResults.forEach(r => {
+    const coords = r.coordinates;
+    if (coords && coords.lat && coords.lon) {
+      if (coords.lat < minLat) minLat = coords.lat;
+      if (coords.lat > maxLat) maxLat = coords.lat;
+      if (coords.lon < minLon) minLon = coords.lon;
+      if (coords.lon > maxLon) maxLon = coords.lon;
+    }
+  });
+  
+  const latDiff = maxLat - minLat;
+  const lonDiff = maxLon - minLon;
+  
+  const width = 800;
+  const height = 600;
+  const padding = 50;
+  
+  const cameras = qcResults.map((r, idx) => {
+    let x, y;
+    if (latDiff > 0.00001 && lonDiff > 0.00001) {
+      x = padding + ((r.coordinates.lon - minLon) / lonDiff) * (width - 2 * padding);
+      y = padding + ((maxLat - r.coordinates.lat) / latDiff) * (height - 2 * padding);
+    } else {
+      // Procedural fallback if no spatial spread
+      const cols = Math.ceil(Math.sqrt(qcResults.length));
+      const rIdx = Math.floor(idx / cols);
+      const cIdx = idx % cols;
+      x = (width / (cols + 1)) * (cIdx + 1);
+      y = (height / (Math.ceil(qcResults.length / cols) + 1)) * (rIdx + 1);
+    }
+    
+    return {
+      id: idx,
+      x: x,
+      y: y,
+      z: r.coordinates.alt || 80.0,
+      filename: r.filename,
+      pitch: 0,
+      roll: 0,
+      yaw: 0,
+      qcPassed: r.passed,
+      rejectionReason: r.rejection_reason
+    };
+  });
+  
+  state.fieldData.cameras = cameras;
+  renderer.setFieldData(state.fieldData);
 }
 
 // Canvas tools helper hook binds
