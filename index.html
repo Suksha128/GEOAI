@@ -11,10 +11,6 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-  <!-- Background glow effects -->
-  <div class="glow-orb orb-1"></div>
-  <div class="glow-orb orb-2"></div>
-
   <div class="app-container">
     <!-- Top Header -->
     <header class="app-header">
@@ -39,17 +35,7 @@
           <span class="icon">⚙️</span>
           <h2>Pipeline Configuration</h2>
         </div>
-        <div class="panel-body">
-          <div class="control-group">
-            <label for="concurrencySlider">Upload Concurrency Streams</label>
-            <div class="slider-container">
-              <input type="range" id="concurrencySlider" min="4" max="32" value="12" step="1">
-              <span class="value-badge" id="concurrencyVal">12</span>
-            </div>
-            <p class="control-help">Number of concurrent HTTP connection streams uploading directly to Azure Blob Storage using SAS signatures.</p>
-          </div>
-
-          <div class="control-group">
+          <di class="control-group">
             <label for="gridSizeSelect">Analysis Grid Resolution</label>
             <select id="gridSizeSelect" class="styled-select">
               <option value="10" selected>10m x 10m (High Precision)</option>
@@ -95,7 +81,7 @@
             <div class="dropzone-content">
               <div class="upload-icon"></div>
               <h3>Drag & Drop Drone Folders Here</h3>
-              <p>Supports recursive image parsing (20-25 GB datasets)</p>
+              <p>Supports recursive image parsing </p>
               <span class="or-divider">or</span>
               <label class="custom-file-btn">
                 Select Folders
@@ -132,11 +118,6 @@
             <span class="stat-title">Uploaded Volume</span>
             <span class="stat-value" id="statsUploadedSize">0.0 MB / 0.0 MB</span>
             <span class="stat-sub" id="statsPercentage">0% completed</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-title">Estimated Time</span>
-            <span class="stat-value" id="statsEta">--:--:--</span>
-            <span class="stat-sub">Target: Azure Blob Storage</span>
           </div>
         </div>
         <!-- Progress bar container -->
@@ -307,7 +288,7 @@
     </main>
 
     <footer class="app-footer">
-      <p>&copy; 2026 Antigravity GeoAI Systems. Powered by OpenDroneMap and WhiteboxTools (Offline Engine).</p>
+      <p>&copy; 2026 GeoAI System. Powered by OpenDroneMap and WhiteboxTools (Offline Engine).</p>
       <div class="footer-links">
         <a href="file:///Users/sukshas/.gemini/antigravity/brain/6894357f-c23d-4dbb-b7f1-2a2a11d69d37/system_architecture.md" target="_blank">View System Architecture Guide</a>
       </div>
